@@ -1,0 +1,15 @@
+<resources>
+    <!-- Cinema palette: near-black grounds, warm ember accent. -->
+    <color name="bg">#08090B</color>
+    <color name="panel">#121418</color>
+    <color name="card">#1A1D23</color>
+    <color name="card_hi">#262A32</color>
+    <color name="accent">#FF5A36</color>
+    <color name="text">#F5F5F1</color>
+    <color name="muted">#A3A7AE</color>
+    <color name="faint">#6B7079</color>
+    <color name="live">#E53935</color>
+    <color name="gold">#F5C451</color>
+    <color name="fresh">#3DBE6B</color>
+    <color name="tomato">#FA320A</color>
+</resources>

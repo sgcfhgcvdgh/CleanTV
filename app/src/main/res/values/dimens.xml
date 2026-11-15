@@ -1,0 +1,11 @@
+<resources>
+    <!-- Where rows, the billboard text and the focused card line up, clear of the collapsed menu. -->
+    <dimen name="keyline">92dp</dimen>
+    <dimen name="rail_closed">68dp</dimen>
+    <dimen name="rail_open">232dp</dimen>
+    <dimen name="poster_w">104dp</dimen>
+    <dimen name="poster_h">156dp</dimen>
+    <dimen name="wide_w">228dp</dimen>
+    <dimen name="wide_h">128dp</dimen>
+    <dimen name="card_gap">10dp</dimen>
+</resources>

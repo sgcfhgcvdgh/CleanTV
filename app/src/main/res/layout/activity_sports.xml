@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@color/bg" android:clipChildren="false">
+
+    <View
+        android:layout_width="match_parent" android:layout_height="match_parent"
+        android:background="@drawable/bg_sports_glow" />
+
+    <LinearLayout
+        android:layout_width="match_parent" android:layout_height="match_parent"
+        android:clipChildren="false" android:clipToPadding="false"
+        android:orientation="vertical" android:paddingTop="28dp">
+
+        <LinearLayout
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:gravity="bottom" android:orientation="horizontal"
+            android:paddingStart="@dimen/keyline" android:paddingEnd="48dp">
+
+            <TextView
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-black" android:text="Sports"
+                android:textColor="@color/text" android:textSize="30sp" />
+
+            <TextView
+                android:id="@+id/updated"
+                android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:layout_marginStart="18dp" android:layout_marginBottom="6dp"
+                android:ellipsize="end" android:singleLine="true"
+                android:textColor="@color/faint" android:textSize="13sp" />
+        </LinearLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/sportChips"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="14dp" android:clipChildren="false" android:clipToPadding="false"
+            android:paddingStart="@dimen/keyline" android:paddingTop="4dp"
+            android:paddingEnd="48dp" android:paddingBottom="4dp" />
+
+        <!-- The game in focus. -->
+        <LinearLayout
+            android:id="@+id/hero"
+            android:layout_width="match_parent" android:layout_height="128dp"
+            android:gravity="center_vertical" android:orientation="horizontal"
+            android:paddingStart="@dimen/keyline" android:paddingEnd="48dp">
+
+            <ImageView
+                android:id="@+id/heroHome"
+                android:layout_width="64dp" android:layout_height="64dp"
+                android:layout_marginEnd="20dp" android:importantForAccessibility="no"
+                android:scaleType="fitCenter" android:visibility="gone" />
+
+            <LinearLayout
+                android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/heroKicker"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium" android:letterSpacing="0.16"
+                    android:textAllCaps="true" android:textColor="@color/accent" android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/heroTitle"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp" android:ellipsize="end" android:singleLine="true"
+                    android:fontFamily="sans-serif-black" android:textColor="@color/text" android:textSize="30sp" />
+
+                <TextView
+                    android:id="@+id/heroDetail"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp" android:ellipsize="end" android:singleLine="true"
+                    android:textColor="@color/muted" android:textSize="14sp" />
+            </LinearLayout>
+
+            <ImageView
+                android:id="@+id/heroAway"
+                android:layout_width="64dp" android:layout_height="64dp"
+                android:layout_marginStart="20dp" android:importantForAccessibility="no"
+                android:scaleType="fitCenter" android:visibility="gone" />
+        </LinearLayout>
+
+        <FrameLayout
+            android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+            android:clipChildren="false">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rows"
+                android:layout_width="match_parent" android:layout_height="match_parent"
+                android:clipChildren="false" android:clipToPadding="false"
+                android:descendantFocusability="afterDescendants"
+                android:paddingTop="4dp" android:paddingBottom="240dp" />
+
+            <TextView
+                android:id="@+id/status"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="40dp" android:gravity="center"
+                android:paddingStart="@dimen/keyline" android:paddingEnd="48dp"
+                android:textColor="@color/muted" android:textSize="16sp" android:visibility="gone" />
+        </FrameLayout>
+    </LinearLayout>
+</FrameLayout>

@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@color/bg" android:clipChildren="false">
+
+    <!-- Billboard backdrop: two images that crossfade, each drifting slowly. -->
+    <ImageView
+        android:id="@+id/backdropA"
+        android:layout_width="match_parent" android:layout_height="match_parent"
+        android:alpha="0" android:importantForAccessibility="no" android:scaleType="centerCrop" />
+
+    <ImageView
+        android:id="@+id/backdropB"
+        android:layout_width="match_parent" android:layout_height="match_parent"
+        android:alpha="0" android:importantForAccessibility="no" android:scaleType="centerCrop" />
+
+    <View
+        android:layout_width="match_parent" android:layout_height="match_parent"
+        android:background="@drawable/scrim_left" />
+
+    <View
+        android:layout_width="match_parent" android:layout_height="340dp"
+        android:layout_gravity="bottom" android:background="@drawable/scrim_bottom" />
+
+    <View
+        android:layout_width="match_parent" android:layout_height="90dp"
+        android:background="@drawable/scrim_top" />
+
+    <LinearLayout
+        android:id="@+id/content"
+        android:layout_width="match_parent" android:layout_height="match_parent"
+        android:clipChildren="false" android:clipToPadding="false"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:id="@+id/hero"
+            android:layout_width="match_parent" android:layout_height="282dp"
+            android:clipChildren="false" android:clipToPadding="false"
+            android:gravity="bottom" android:orientation="vertical"
+            android:paddingStart="@dimen/keyline" android:paddingEnd="400dp" android:paddingBottom="14dp">
+
+            <TextView
+                android:id="@+id/heroKicker"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-medium" android:letterSpacing="0.18"
+                android:textAllCaps="true" android:textColor="@color/accent" android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/heroTitle"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="4dp" android:ellipsize="end" android:maxLines="2"
+                android:fontFamily="sans-serif-black" android:lineSpacingMultiplier="0.92"
+                android:textColor="@color/text" android:textSize="38sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="8dp" android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/heroMatch"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:layout_marginEnd="12dp" android:fontFamily="sans-serif-medium"
+                    android:textColor="@color/fresh" android:textSize="14sp" android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/heroMeta"
+                    android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                    android:ellipsize="end" android:singleLine="true"
+                    android:textColor="@color/muted" android:textSize="14sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/heroScores"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="8dp" android:orientation="horizontal" />
+
+            <TextView
+                android:id="@+id/heroPlot"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="8dp" android:ellipsize="end" android:maxLines="3"
+                android:lineSpacingMultiplier="1.15" android:textColor="#D9F5F5F1" android:textSize="14sp" />
+
+            <LinearLayout
+                android:id="@+id/heroButtons"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="14dp" android:orientation="horizontal">
+
+                <LinearLayout android:id="@+id/heroPlay" style="@style/HeroButton">
+                    <ImageView style="@style/HeroButtonIcon" android:src="@drawable/ic_play" />
+                    <TextView android:id="@+id/heroPlayText" style="@style/HeroButtonText" android:text="Play" />
+                </LinearLayout>
+
+                <LinearLayout android:id="@+id/heroInfo" style="@style/HeroButton">
+                    <ImageView style="@style/HeroButtonIcon" android:src="@drawable/ic_info" />
+                    <TextView style="@style/HeroButtonText" android:text="More info" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rows"
+            android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+            android:clipChildren="false" android:clipToPadding="false"
+            android:descendantFocusability="afterDescendants"
+            android:paddingTop="6dp" android:paddingBottom="320dp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/status"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_gravity="bottom" android:layout_marginBottom="120dp"
+        android:gravity="center" android:paddingStart="@dimen/keyline" android:paddingEnd="40dp"
+        android:textColor="@color/muted" android:textSize="17sp" android:visibility="gone" />
+
+    <!-- Dims the page while the menu is open. -->
+    <View
+        android:id="@+id/railDim"
+        android:layout_width="match_parent" android:layout_height="match_parent"
+        android:alpha="0" android:background="#B308090B" />
+
+    <LinearLayout
+        android:id="@+id/rail"
+        android:layout_width="@dimen/rail_closed" android:layout_height="match_parent"
+        android:background="@drawable/bg_rail" android:gravity="center_vertical"
+        android:orientation="vertical" android:paddingStart="10dp" android:paddingEnd="10dp" />
+
+    <!-- Opening titles, shown once while the library loads. -->
+    <FrameLayout
+        android:id="@+id/intro"
+        android:layout_width="match_parent" android:layout_height="match_parent"
+        android:background="@color/bg" android:clickable="true" android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/introMark"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_gravity="center" android:gravity="center_horizontal"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-black" android:letterSpacing="0.06"
+                    android:text="CLEAN" android:textColor="@color/text" android:textSize="56sp" />
+
+                <TextView
+                    android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-black" android:letterSpacing="0.06"
+                    android:text="TV" android:textColor="@color/accent" android:textSize="56sp" />
+            </LinearLayout>
+
+            <View
+                android:id="@+id/introBar"
+                android:layout_width="220dp" android:layout_height="3dp"
+                android:layout_marginTop="10dp" android:background="@color/accent" />
+
+            <TextView
+                android:id="@+id/introStatus"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginTop="18dp" android:alpha="0"
+                android:textColor="@color/muted" android:textSize="14sp" />
+        </LinearLayout>
+    </FrameLayout>
+</FrameLayout>

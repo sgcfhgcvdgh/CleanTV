@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@color/bg" android:clipChildren="false"
+    android:orientation="vertical" android:paddingTop="32dp">
+
+    <LinearLayout
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="center_vertical" android:orientation="horizontal"
+        android:paddingStart="@dimen/keyline" android:paddingEnd="300dp">
+
+        <ImageView
+            android:layout_width="26dp" android:layout_height="26dp"
+            android:layout_marginEnd="14dp" android:importantForAccessibility="no"
+            android:src="@drawable/ic_search" android:alpha="0.7" />
+
+        <EditText
+            android:id="@+id/query" style="@style/Field"
+            android:layout_width="0dp" android:layout_weight="1" android:layout_marginBottom="0dp"
+            android:hint="Films, series, channels"
+            android:imeOptions="actionSearch" android:inputType="text" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/status"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="14dp" android:paddingStart="@dimen/keyline"
+        android:textColor="@color/muted" android:textSize="14sp" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rows"
+        android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:layout_marginTop="10dp"
+        android:clipChildren="false" android:clipToPadding="false"
+        android:descendantFocusability="afterDescendants"
+        android:paddingTop="6dp" android:paddingBottom="240dp" />
+</LinearLayout>
