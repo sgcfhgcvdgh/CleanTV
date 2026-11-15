@@ -33,6 +33,11 @@ class SearchActivity : AppCompatActivity(), CardHost {
         rows.layoutManager = KeylineLayoutManager(this, RecyclerView.VERTICAL)
         rows.itemAnimator = null
         rows.adapter = rowsAdapter
+        findViewById<android.view.View>(R.id.root).viewTreeObserver.addOnGlobalFocusChangeListener { _, now ->
+            var p: android.view.View? = now
+            while (p != null && p !== rows) p = p.parent as? android.view.View
+            Rows.dim(rows, if (p != null) now else null, idle = 1f)
+        }
 
         query.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}

@@ -192,6 +192,28 @@ class XtreamApi(serverInput: String, private val username: String, private val p
         return rawMeta(info)
     }
 
+    /** What's on a channel now and next (titles come base64-encoded from most panels). */
+    fun shortEpg(streamId: Int, limit: Int = 4): List<Programme> {
+        val body = get(apiUrl("get_short_epg") + "&stream_id=" + streamId + "&limit=" + limit).trim()
+        if (!body.startsWith("{")) return emptyList()
+        val arr = JSONObject(body).optJSONArray("epg_listings") ?: return emptyList()
+        fun text(v: String): String {
+            if (v.isBlank()) return ""
+            return runCatching {
+                String(android.util.Base64.decode(v, android.util.Base64.DEFAULT), Charsets.UTF_8)
+            }.getOrNull()?.takeIf { it.isNotBlank() && it.none { c -> c == '�' } } ?: v
+        }
+        val out = ArrayList<Programme>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val start = o.optString("start_timestamp").toLongOrNull()?.times(1000) ?: continue
+            val end = (o.optString("stop_timestamp").ifBlank { o.optString("end_timestamp") }).toLongOrNull()?.times(1000) ?: continue
+            if (end <= start) continue
+            out += Programme(text(o.optString("title")).trim(), text(o.optString("description")).trim().ifBlank { null }, start, end)
+        }
+        return out.sortedBy { it.start }
+    }
+
     fun movieUrl(id: Int, ext: String): String = "$server/movie/$username/$password/$id.$ext"
 
     /** All episode files of one series, from get_series_info. Handles the different shapes panels send. */
@@ -259,6 +281,9 @@ class XtreamApi(serverInput: String, private val username: String, private val p
         "$server/live/$username/$password/$streamId." + if (hls) "m3u8" else "ts"
 }
 
+/** One programme in the TV guide. */
+data class Programme(val title: String, val description: String?, val start: Long, val end: Long)
+
 /** Holds the grouped channel list in memory while the app is open. */
 object Library {
     @Volatile
@@ -268,6 +293,15 @@ object Library {
 
     @Synchronized
     fun channel(key: String): ChannelGroup? = byKey[key]
+
+    /** Channels in categories you haven't hidden (Settings → Live TV categories). Favourites always show. */
+    fun visible(prefs: Prefs): List<ChannelGroup> {
+        val lib = data ?: return emptyList()
+        val hidden = prefs.hiddenLiveCategories
+        if (hidden.isEmpty()) return lib.channels
+        val favs = prefs.favourites
+        return lib.channels.filter { ch -> ch.key in favs || ch.categoryKeys.isEmpty() || ch.categoryKeys.any { it !in hidden } }
+    }
 
     @Synchronized
     fun clear() {

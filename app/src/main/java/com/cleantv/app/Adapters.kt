@@ -4,7 +4,9 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
+import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import coil.dispose
 import coil.load
@@ -79,14 +81,22 @@ class CategoryAdapter(
     }
 }
 
-class ChannelAdapter(
+/** Live TV as a list: logo, name and qualities, then what's on now (with progress) and next. */
+class ChannelListAdapter(
+    private val prefs: Prefs,
     private val onClick: (ChannelGroup) -> Unit,
     private val onLongClick: (ChannelGroup) -> Unit,
-    private val isFavourite: (ChannelGroup) -> Boolean,
-) : RecyclerView.Adapter<ChannelAdapter.VH>() {
+    private val onFocus: (ChannelGroup) -> Unit = {},
+) : RecyclerView.Adapter<ChannelListAdapter.VH>() {
 
     var items: List<ChannelGroup> = emptyList()
         private set
+
+    init {
+        setHasStableIds(true)
+    }
+
+    override fun getItemId(position: Int): Long = items[position].key.hashCode().toLong()
 
     fun submit(list: List<ChannelGroup>) {
         items = list
@@ -98,23 +108,36 @@ class ChannelAdapter(
         if (i >= 0) notifyItemChanged(i)
     }
 
+    /** Moves the progress bars and rolls over to the next programme. */
+    fun tick() = notifyItemRangeChanged(0, items.size, GUIDE)
+
     class VH(v: View) : RecyclerView.ViewHolder(v) {
         val logo: ImageView = v.findViewById(R.id.logo)
         val name: TextView = v.findViewById(R.id.name)
         val badges: TextView = v.findViewById(R.id.badges)
         val fav: TextView = v.findViewById(R.id.fav)
+        val nowTime: TextView = v.findViewById(R.id.nowTime)
+        val nowTitle: TextView = v.findViewById(R.id.nowTitle)
+        val nowProgress: ProgressBar = v.findViewById(R.id.nowProgress)
+        val next: TextView = v.findViewById(R.id.next)
+        var key: String? = null
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
-        VH(LayoutInflater.from(parent.context).inflate(R.layout.item_channel, parent, false))
+        VH(LayoutInflater.from(parent.context).inflate(R.layout.item_channel_row, parent, false))
 
     override fun getItemCount() = items.size
 
+    override fun onBindViewHolder(holder: VH, position: Int, payloads: MutableList<Any>) {
+        if (payloads.contains(GUIDE)) bindGuide(holder, items[position]) else super.onBindViewHolder(holder, position, payloads)
+    }
+
     override fun onBindViewHolder(holder: VH, position: Int) {
         val g = items[position]
+        holder.key = g.key
         holder.name.text = g.name
         holder.badges.text = g.badges
-        holder.fav.visibility = if (isFavourite(g)) View.VISIBLE else View.GONE
+        holder.fav.visibility = if (prefs.favourites.contains(g.key)) View.VISIBLE else View.GONE
         if (g.icon != null) {
             holder.logo.load(g.icon) {
                 placeholder(R.drawable.ic_tv)
@@ -127,52 +150,54 @@ class ChannelAdapter(
         holder.itemView.setOnClickListener { onClick(g) }
         holder.itemView.setOnLongClickListener { onLongClick(g); true }
         holder.itemView.setOnFocusChangeListener { v, hasFocus ->
-            val s = if (hasFocus) 1.06f else 1f
-            v.animate().scaleX(s).scaleY(s).setDuration(120).start()
+            val s = if (hasFocus) 1.02f else 1f
+            v.animate().scaleX(s).scaleY(s).setDuration(160).setInterpolator(Motion.settle).start()
+            if (hasFocus) onFocus(g)
         }
-    }
-}
-
-class ShowAdapter(
-    private val onClick: (Show) -> Unit,
-) : RecyclerView.Adapter<ShowAdapter.VH>() {
-
-    var items: List<Show> = emptyList()
-        private set
-
-    fun submit(list: List<Show>) {
-        items = list
-        notifyDataSetChanged()
+        bindGuide(holder, g)
     }
 
-    class VH(v: View) : RecyclerView.ViewHolder(v) {
-        val poster: ImageView = v.findViewById(R.id.poster)
-        val name: TextView = v.findViewById(R.id.name)
+    private fun bindGuide(h: VH, g: ChannelGroup) {
+        val id = Epg.streamOf(g)
+        val cached = id?.let { Epg.cached(it) }
+        if (cached != null) {
+            showGuide(h, cached)
+            return
+        }
+        h.nowTime.text = ""
+        h.nowTitle.text = ""
+        h.nowProgress.visibility = View.INVISIBLE
+        h.next.text = ""
+        Epg.fetch(prefs, g) { list -> if (h.key == g.key) showGuide(h, list) }
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
-        VH(LayoutInflater.from(parent.context).inflate(R.layout.item_show, parent, false))
-
-    override fun getItemCount() = items.size
-
-    override fun onBindViewHolder(holder: VH, position: Int) {
-        val s = items[position]
-        holder.name.text = s.name
-        if (s.cover != null) {
-            holder.poster.load(s.cover) {
-                placeholder(R.drawable.ic_tv)
-                error(R.drawable.ic_tv)
-            }
+    private fun showGuide(h: VH, list: List<Programme>) {
+        val now = System.currentTimeMillis()
+        val cur = list.firstOrNull { it.start <= now && it.end > now }
+        val next = list.firstOrNull { it.start >= (cur?.end ?: now) }
+        if (cur == null && next == null) {
+            h.nowTime.text = ""
+            h.nowTitle.text = "No guide information"
+            h.nowTitle.setTextColor(ContextCompat.getColor(h.itemView.context, R.color.faint))
+            h.nowProgress.visibility = View.INVISIBLE
+            h.next.text = ""
+            return
+        }
+        h.nowTitle.setTextColor(ContextCompat.getColor(h.itemView.context, R.color.text))
+        if (cur != null) {
+            h.nowTime.text = "${Epg.time(cur.start)} – ${Epg.time(cur.end)}"
+            h.nowTitle.text = cur.title
+            h.nowProgress.visibility = View.VISIBLE
+            h.nowProgress.progress = Epg.progress(cur, now)
         } else {
-            holder.poster.dispose()
-            holder.poster.setImageResource(R.drawable.ic_tv)
+            h.nowTime.text = ""
+            h.nowTitle.text = "Off air"
+            h.nowProgress.visibility = View.INVISIBLE
         }
-        holder.itemView.setOnClickListener { onClick(s) }
-        holder.itemView.setOnFocusChangeListener { v, hasFocus ->
-            val sc = if (hasFocus) 1.06f else 1f
-            v.animate().scaleX(sc).scaleY(sc).setDuration(120).start()
-        }
+        h.next.text = next?.let { "Next  ${Epg.time(it.start)}  ${it.title}" } ?: ""
     }
+
+    private object GUIDE
 }
 
 class EpisodeAdapter(

@@ -3,6 +3,7 @@ package com.cleantv.app
 import android.content.Context
 import android.graphics.Rect
 import android.os.Parcelable
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -192,6 +193,10 @@ class CardAdapter(private val host: CardHost, private val style: RowStyle) : Rec
             is Card.GameCard -> bindGame(h, card)
         }
         h.itemView.setOnClickListener { host.onCardClicked(card) }
+        h.itemView.setOnKeyListener { v, keyCode, e ->
+            keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && e.action == KeyEvent.ACTION_DOWN &&
+                h.bindingAdapterPosition == items.size - 1 && Rows.jumpToNextRow(v)
+        }
         h.itemView.setOnLongClickListener { host.onCardLongClicked(card); true }
         h.itemView.setOnFocusChangeListener { v, has ->
             Motion.focus(v, has, if (card is Card.TitleCard && style == RowStyle.POSTER) 1.12f else 1.07f)
@@ -286,6 +291,60 @@ class CardAdapter(private val host: CardHost, private val style: RowStyle) : Rec
     }
 }
 
+object Rows {
+    private fun isIn(parent: View, v: View?): Boolean {
+        var p: View? = v
+        while (p != null) {
+            if (p === parent) return true
+            p = p.parent as? View
+        }
+        return false
+    }
+
+    /**
+     * The row you're on stays bright, rows below dim, and rows you've moved past fade out
+     * completely so they never sit behind the billboard text.
+     */
+    fun dim(rows: RecyclerView, focus: View?, idle: Float) {
+        val focusedRow = (0 until rows.childCount).map { rows.getChildAt(it) }.firstOrNull { isIn(it, focus) }
+        val focusedPos = focusedRow?.let { rows.getChildAdapterPosition(it) } ?: -1
+        for (i in 0 until rows.childCount) {
+            val child = rows.getChildAt(i)
+            val pos = rows.getChildAdapterPosition(child)
+            val target = when {
+                focusedPos < 0 -> idle
+                child === focusedRow -> 1f
+                pos in 0 until focusedPos -> 0f
+                else -> 0.5f
+            }
+            if (child.alpha != target) child.animate().alpha(target).setDuration(220).start()
+        }
+    }
+
+    /** Right on the last card of a row moves to the start of the next row. */
+    fun jumpToNextRow(card: View): Boolean {
+        val inner = card.parent as? RecyclerView ?: return false
+        val rowView = inner.parent as? View ?: return false
+        val outer = rowView.parent as? RecyclerView ?: return false
+        val pos = outer.getChildAdapterPosition(rowView)
+        val count = outer.adapter?.itemCount ?: 0
+        if (pos == RecyclerView.NO_POSITION || pos + 1 >= count) return false
+        fun focusNext() {
+            val vh = outer.findViewHolderForAdapterPosition(pos + 1) as? RowsAdapter.VH ?: return
+            vh.list.scrollToPosition(0)
+            vh.list.post {
+                (vh.list.findViewHolderForAdapterPosition(0)?.itemView ?: vh.list.getChildAt(0))?.requestFocus()
+            }
+        }
+        if (outer.findViewHolderForAdapterPosition(pos + 1) != null) focusNext()
+        else {
+            outer.scrollToPosition(pos + 1)
+            outer.post { focusNext() }
+        }
+        return true
+    }
+}
+
 /** Vertical list of rows; each row a horizontal list of cards that remembers where you were. */
 class RowsAdapter(private val host: CardHost) : RecyclerView.Adapter<RowsAdapter.VH>() {
 
@@ -355,6 +414,9 @@ class RowsAdapter(private val host: CardHost) : RecyclerView.Adapter<RowsAdapter
         val row = rows[position]
         h.rowId = row.id
         h.title.text = row.title
+        // A recycled row may still be faded out from higher up the page.
+        h.itemView.animate().cancel()
+        h.itemView.alpha = 0.5f
         (h.list.adapter as CardAdapter).submit(row.cards)
         val saved = scrollState[row.id]
         if (saved != null) h.list.layoutManager?.onRestoreInstanceState(saved) else h.list.scrollToPosition(0)

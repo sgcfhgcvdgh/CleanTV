@@ -74,8 +74,9 @@ class SportsActivity : AppCompatActivity(), CardHost {
 
         findViewById<View>(R.id.root).viewTreeObserver.addOnGlobalFocusChangeListener { _, now -> dimRows(now) }
 
-        // Channels are needed to know which games you can watch.
-        Playback.withChannels(this) { load(sport, quiet = false) }
+        // Games show straight away; once your channels have loaded, the ones you can watch get marked.
+        load(sport, quiet = false)
+        if (Library.data == null) Playback.withChannels(this) { load(sport, quiet = true) }
         heroKicker.text = sport.name
         heroTitle.text = "Loading games…"
         chips.post {
@@ -109,14 +110,7 @@ class SportsActivity : AppCompatActivity(), CardHost {
         return false
     }
 
-    private fun dimRows(focus: View?) {
-        val inRows = isIn(rowsView, focus)
-        for (i in 0 until rowsView.childCount) {
-            val c = rowsView.getChildAt(i)
-            val target = if (!inRows) 1f else if (isIn(c, focus)) 1f else 0.5f
-            if (c.alpha != target) c.animate().alpha(target).setDuration(220).start()
-        }
-    }
+    private fun dimRows(focus: View?) = Rows.dim(rowsView, focus?.takeIf { isIn(rowsView, it) }, idle = 1f)
 
     // ------------------------------------------------------------------ data
 

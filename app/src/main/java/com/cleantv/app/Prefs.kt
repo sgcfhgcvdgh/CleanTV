@@ -61,6 +61,11 @@ class Prefs(context: Context) {
         get() = sp.getString("lastSport", "") ?: ""
         set(v) = sp.edit().putString("lastSport", v).apply()
 
+    /** Live TV categories you've hidden (their merged category keys). */
+    var hiddenLiveCategories: Set<String>
+        get() = sp.getStringSet("hiddenLiveCats", emptySet())?.toSet() ?: emptySet()
+        set(v) = sp.edit().putStringSet("hiddenLiveCats", HashSet(v)).apply()
+
     // ---------- My List and watch history ----------
 
     var myList: List<String>

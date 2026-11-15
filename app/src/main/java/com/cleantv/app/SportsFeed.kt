@@ -27,16 +27,25 @@ object SportsFeed {
         return SimpleDateFormat("yyyyMMdd", Locale.US).format(c.time)
     }
 
-    /** Games for one league: yesterday's late finishes through the next 3 days. Blocks. */
+    /**
+     * Games for one league: the current round, plus today and tomorrow for team sports. Blocks.
+     * (ESPN answers a date *range* with an error, so days are asked for one at a time.)
+     */
     fun games(league: League): List<Game> {
-        val url = BASE + league.path + "/scoreboard?limit=200" +
-            if (league.dateRange) "&dates=${day(0)}-${day(3)}" else ""
-        val body = Net.get(url, 45_000L) ?: return emptyList()
-        val root = runCatching { JSONObject(body) }.getOrNull() ?: return emptyList()
-        val events = root.optJSONArray("events") ?: return emptyList()
+        val base = BASE + league.path + "/scoreboard?limit=200"
+        val urls = if (league.dateRange) listOf(base, "$base&dates=${day(0)}", "$base&dates=${day(1)}") else listOf(base)
+        val events = ArrayList<JSONObject>()
+        val seen = HashSet<String>()
+        for (url in urls) {
+            val body = Net.get(url, 45_000L) ?: continue
+            val arr = runCatching { JSONObject(body).optJSONArray("events") }.getOrNull() ?: continue
+            for (i in 0 until arr.length()) {
+                val e = arr.optJSONObject(i) ?: continue
+                if (seen.add(e.optString("id"))) events += e
+            }
+        }
         val out = ArrayList<Game>()
-        for (i in 0 until events.length()) {
-            val e = events.optJSONObject(i) ?: continue
+        for (e in events) {
             val comps = ArrayList<JSONObject>()
             e.optJSONArray("competitions")?.let { a -> for (j in 0 until a.length()) a.optJSONObject(j)?.let { comps += it } }
             e.optJSONArray("groupings")?.let { g ->
@@ -56,8 +65,11 @@ object SportsFeed {
             }
         }
         val now = System.currentTimeMillis()
-        // Tennis lists hundreds of matches: keep what's on and the next 12 hours.
-        return out.filter { it.state != GameState.UPCOMING || league.dateRange || it.startMs - now < 12 * Net.HOUR }
+        return out
+            // Tennis lists hundreds of matches: keep what's on and the next 12 hours.
+            .filter { it.state != GameState.UPCOMING || league.dateRange || it.startMs - now < 12 * Net.HOUR }
+            // Results older than a day are dropped.
+            .filter { it.state != GameState.FINISHED || now - it.startMs < 30 * Net.HOUR }
             .sortedWith(compareBy<Game> { it.state.ordinal }.thenBy { it.startMs })
     }
 
@@ -78,10 +90,13 @@ object SportsFeed {
             val o = arr.optJSONObject(i) ?: continue
             val team = o.optJSONObject("team")
             val athlete = o.optJSONObject("athlete")
+            val roster = o.optJSONObject("roster") // tennis doubles
             val name = team?.optString("displayName")?.ifBlank { null }
-                ?: athlete?.optString("displayName")?.ifBlank { null } ?: continue
+                ?: athlete?.optString("displayName")?.ifBlank { null }
+                ?: roster?.optString("displayName")?.ifBlank { null } ?: continue
             val short = team?.optString("shortDisplayName")?.ifBlank { null }
-                ?: athlete?.optString("shortName")?.ifBlank { null } ?: name
+                ?: athlete?.optString("shortName")?.ifBlank { null }
+                ?: roster?.optString("shortDisplayName")?.ifBlank { null } ?: name
             val logo = team?.optString("logo")?.ifBlank { null }
                 ?: athlete?.optJSONObject("flag")?.optString("href")?.ifBlank { null }
             val score = when (val s = o.opt("score")) {
@@ -89,13 +104,17 @@ object SportsFeed {
                 is JSONObject -> s.optString("displayValue")
                 is Number -> s.toString()
                 else -> null
-            }?.ifBlank { null }
+            }?.ifBlank { null } ?: o.optJSONArray("linescores")?.let { ls ->
+                // Tennis: games per set, e.g. "6 3 7".
+                (0 until ls.length()).mapNotNull { ls.optJSONObject(it)?.optDouble("value")?.takeIf { v -> !v.isNaN() }?.toInt()?.toString() }
+                    .joinToString(" ").ifBlank { null }
+            }
             competitors += Competitor(
                 name, short, team?.optString("abbreviation")?.ifBlank { null }, logo, score,
                 o.optString("homeAway") == "home",
             )
         }
-        if (competitors.isEmpty()) return null
+        // A race or tournament session may list no competitors at all: it becomes an event card.
         val st = state(c, e)
         val type = statusOf(c, e)?.optJSONObject("type")
         val start = parseTime(c.optString("date").ifBlank { e.optString("date") })
@@ -115,7 +134,7 @@ object SportsFeed {
                 ?.takeIf { it.isNotBlank() }?.let { broadcasts += it }
         }
         val session = c.optJSONObject("type")?.optString("abbreviation")?.ifBlank { null }
-        val eventName = listOfNotNull(e.optString("shortName").ifBlank { e.optString("name") }, session?.takeIf { competitors.size > 2 })
+        val eventName = listOfNotNull(e.optString("shortName").ifBlank { e.optString("name") }, session?.takeIf { competitors.size != 2 })
             .joinToString(" · ")
         return Game(
             id = c.optString("id").ifBlank { e.optString("id") },

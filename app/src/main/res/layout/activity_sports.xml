@@ -88,7 +88,7 @@
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rows"
                 android:layout_width="match_parent" android:layout_height="match_parent"
-                android:clipChildren="false" android:clipToPadding="false"
+                android:clipChildren="true" android:clipToPadding="false"
                 android:descendantFocusability="afterDescendants"
                 android:paddingTop="4dp" android:paddingBottom="240dp" />
 

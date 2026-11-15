@@ -128,7 +128,9 @@ object SettingsDialog {
     fun show(activity: Activity, onRefresh: () -> Unit) {
         val prefs = Prefs(activity)
         val q = prefs.defaultQuality
+        val hiddenCount = prefs.hiddenLiveCategories.size
         val options = arrayOf(
+            "Live TV categories" + if (hiddenCount > 0) ": $hiddenCount hidden" else ": showing all",
             "Start in quality: ${if (q == Quality.UHD) "UHD" else q.label}",
             "Live stream type: ${if (prefs.useHls) "HLS (.m3u8)" else "MPEG-TS (.ts)"}",
             "Critic reviews and artwork keys",
@@ -140,26 +142,90 @@ object SettingsDialog {
             .setTitle("Settings")
             .setItems(options) { _, which ->
                 when (which) {
-                    0 -> pickQuality(activity, prefs)
-                    1 -> pickStreamType(activity, prefs)
-                    2 -> editKeys(activity, prefs, onRefresh)
-                    3 -> AlertDialog.Builder(activity)
+                    0 -> Playback.withChannels(activity) { lib ->
+                        if (lib == null) Toast.makeText(activity, "Couldn't load your channels", Toast.LENGTH_LONG).show()
+                        else chooseCategories(activity, prefs, lib, onRefresh)
+                    }
+                    1 -> pickQuality(activity, prefs)
+                    2 -> pickStreamType(activity, prefs)
+                    3 -> editKeys(activity, prefs, onRefresh)
+                    4 -> AlertDialog.Builder(activity)
                         .setTitle("Clear watch history?")
                         .setMessage("Continue Watching and your recommendations will start again from scratch.")
                         .setPositiveButton("Clear") { _, _ -> History.clear(prefs); onRefresh() }
                         .setNegativeButton("Cancel", null).show()
-                    4 -> {
+                    5 -> {
                         Library.clear(); Shows.clear(); Catalog.clear()
                         Toast.makeText(activity, "Refreshing…", Toast.LENGTH_SHORT).show()
                         onRefresh()
                     }
-                    5 -> {
+                    6 -> {
                         activity.startActivity(Intent(activity, LoginActivity::class.java).putExtra(LoginActivity.EXTRA_RELOGIN, true))
                         activity.finishAffinity()
                     }
                 }
             }
             .show()
+    }
+
+    /** Tick the Live TV categories to show; untick to hide. */
+    private fun chooseCategories(activity: Activity, prefs: Prefs, lib: GroupedLibrary, onRefresh: () -> Unit) {
+        val cats = lib.categories
+        val hidden = prefs.hiddenLiveCategories
+        val checked = BooleanArray(cats.size) { cats[it].key !in hidden }
+        val names = cats.map { it.name }.toTypedArray()
+        AlertDialog.Builder(activity)
+            .setTitle("Live TV categories to show")
+            .setMultiChoiceItems(names, checked) { _, which, isChecked -> checked[which] = isChecked }
+            .setPositiveButton("Save") { _, _ ->
+                prefs.hiddenLiveCategories = cats.filterIndexed { i, _ -> !checked[i] }.map { it.key }.toSet()
+                onRefresh()
+            }
+            .setNeutralButton("Keep only…") { _, _ -> keepOnly(activity, prefs, lib, onRefresh) }
+            .setNegativeButton("Show all") { _, _ ->
+                prefs.hiddenLiveCategories = emptySet()
+                onRefresh()
+            }
+            .show()
+    }
+
+    /** "UK, sport" hides every category whose name doesn't mention UK or sport. */
+    private fun keepOnly(activity: Activity, prefs: Prefs, lib: GroupedLibrary, onRefresh: () -> Unit) {
+        val pad = (20 * activity.resources.displayMetrics.density).toInt()
+        val input = EditText(activity).apply {
+            hint = "e.g. UK, sport"
+            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        }
+        val box = LinearLayout(activity).apply {
+            setPadding(pad, pad / 2, pad, 0)
+            addView(input, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        }
+        AlertDialog.Builder(activity)
+            .setTitle("Keep only categories that mention…")
+            .setMessage("Separate words with commas. Everything else is hidden; you can fine-tune the list afterwards.")
+            .setView(box)
+            .setPositiveButton("Apply") { _, _ ->
+                val keep = keepOnlyKeys(lib.categories.map { it.key to it.name }, input.text.toString())
+                if (keep.isEmpty()) {
+                    Toast.makeText(activity, "No categories mention that, nothing was hidden", Toast.LENGTH_LONG).show()
+                } else {
+                    prefs.hiddenLiveCategories = lib.categories.map { it.key }.filter { it !in keep }.toSet()
+                    Toast.makeText(activity, "Showing ${keep.size} of ${lib.categories.size} categories", Toast.LENGTH_SHORT).show()
+                    onRefresh()
+                    chooseCategories(activity, prefs, lib, onRefresh)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** Category keys whose names contain any of the comma-separated words, as whole words ("UK" not "Ukraine"). */
+    fun keepOnlyKeys(categories: List<Pair<String, String>>, words: String): Set<String> {
+        val terms = words.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        if (terms.isEmpty()) return emptySet()
+        val patterns = terms.map { Regex("(?i)(^|[^\\p{L}\\p{N}])" + Regex.escape(it) + "s?($|[^\\p{L}\\p{N}])") }
+        return categories.filter { (_, name) -> patterns.any { it.containsMatchIn(name) } }.map { it.first }.toSet()
     }
 
     private fun pickQuality(activity: Activity, prefs: Prefs) {

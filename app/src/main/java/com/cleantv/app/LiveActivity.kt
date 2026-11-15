@@ -12,7 +12,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 
@@ -32,7 +31,7 @@ class LiveActivity : AppCompatActivity() {
     private lateinit var status: TextView
     private lateinit var search: EditText
     private lateinit var catAdapter: CategoryAdapter
-    private lateinit var chanAdapter: ChannelAdapter
+    private lateinit var chanAdapter: ChannelListAdapter
 
     private val handler = Handler(Looper.getMainLooper())
     private var pending: Runnable? = null
@@ -56,21 +55,21 @@ class LiveActivity : AppCompatActivity() {
                 showCategory(item.key)
             }
         }
-        chanAdapter = ChannelAdapter(
+        chanAdapter = ChannelListAdapter(
+            prefs,
             onClick = { g -> Playback.playChannel(this, g.key, chanAdapter.items.map { it.key }) },
             onLongClick = { toggleFavourite(it) },
-            isFavourite = { prefs.favourites.contains(it.key) },
         )
 
         catList.layoutManager = LinearLayoutManager(this)
         catList.itemAnimator = null
         catList.adapter = catAdapter
 
-        grid.layoutManager = GridLayoutManager(this, 4)
+        grid.layoutManager = LinearLayoutManager(this)
         grid.itemAnimator = null
         grid.adapter = chanAdapter
 
-        findViewById<View>(R.id.settings).setOnClickListener { SettingsDialog.show(this) { load() } }
+        findViewById<View>(R.id.settings).setOnClickListener { SettingsDialog.show(this) { onSettingsChanged() } }
 
         search.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -90,6 +89,30 @@ class LiveActivity : AppCompatActivity() {
         val r = Runnable { block() }
         pending = r
         if (delay == 0L) handler.post(r) else handler.postDelayed(r, delay)
+    }
+
+    /** Hidden categories may have changed: redraw from the loaded list (or reload after a refresh). */
+    private fun onSettingsChanged() {
+        val lib = Library.data
+        if (lib != null) showLibrary(lib) else load()
+    }
+
+    /** Every minute the guide's progress bars move on and finished programmes roll over. */
+    private val ticker = object : Runnable {
+        override fun run() {
+            chanAdapter.tick()
+            handler.postDelayed(this, 60_000)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        handler.postDelayed(ticker, 60_000)
+    }
+
+    override fun onPause() {
+        handler.removeCallbacks(ticker)
+        super.onPause()
     }
 
     private fun load() {
@@ -115,14 +138,17 @@ class LiveActivity : AppCompatActivity() {
 
     private fun showLibrary(lib: GroupedLibrary) {
         status.visibility = View.GONE
+        val hidden = prefs.hiddenLiveCategories
+        val visible = Library.visible(prefs)
         val counts = HashMap<String, Int>()
-        for (ch in lib.channels) for (k in ch.categoryKeys) counts[k] = (counts[k] ?: 0) + 1
+        for (ch in visible) for (k in ch.categoryKeys) counts[k] = (counts[k] ?: 0) + 1
 
         val favCount = lib.channels.count { prefs.favourites.contains(it.key) }
         val items = ArrayList<CatItem>()
         items += CatItem(FAV, "★ Favourites", favCount)
-        items += CatItem(ALL, "All channels", lib.channels.size)
+        items += CatItem(ALL, "All channels", visible.size)
         for (c in lib.categories) {
+            if (c.key in hidden) continue
             val n = counts[c.key] ?: 0
             if (n > 0) items += CatItem(c.key, c.name, n)
         }
@@ -148,7 +174,7 @@ class LiveActivity : AppCompatActivity() {
         val favs = prefs.favourites
         val list = when (key) {
             FAV -> lib.channels.filter { favs.contains(it.key) }
-            ALL -> lib.channels
+            ALL -> Library.visible(prefs)
             else -> lib.channels.filter { key in it.categoryKeys }
         }
         heading.text = "${catNames[key] ?: ""}  ·  ${list.size} channels"
@@ -163,9 +189,9 @@ class LiveActivity : AppCompatActivity() {
     }
 
     private fun showSearch(q: String) {
-        val lib = Library.data ?: return
+        if (Library.data == null) return
         val words = q.lowercase().split(' ').filter { it.isNotBlank() }
-        val list = lib.channels.filter { ch -> words.all { ch.name.contains(it, ignoreCase = true) } }
+        val list = Library.visible(prefs).filter { ch -> words.all { ch.name.contains(it, ignoreCase = true) } }
         heading.text = "Search “$q”  ·  ${list.size} channels"
         chanAdapter.submit(list)
         grid.scrollToPosition(0)
@@ -185,7 +211,7 @@ class LiveActivity : AppCompatActivity() {
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_MENU) {
-            SettingsDialog.show(this) { load() }
+            SettingsDialog.show(this) { onSettingsChanged() }
             return true
         }
         return super.onKeyDown(keyCode, event)

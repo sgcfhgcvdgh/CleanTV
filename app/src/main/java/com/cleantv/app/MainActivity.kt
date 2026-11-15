@@ -61,6 +61,8 @@ class MainActivity : AppCompatActivity(), CardHost {
     private var heroShowing: String? = null
     private var currentBackdrop: String? = null
     private var railOpen = false
+    /** The menu only takes focus when you ask for it (◀ at the left edge, or Back). */
+    private var railAllowed = false
     private var railAnim: ValueAnimator? = null
     private var lastContentFocus: View? = null
     private var liveRow: Row? = null
@@ -232,8 +234,14 @@ class MainActivity : AppCompatActivity(), CardHost {
     private fun onFocusMoved(now: View?) {
         if (now == null) return
         val inRail = isIn(rail, now)
+        if (inRail && !railAllowed) {
+            // Focus drifted into the menu on its own (first load, a list refresh): send it back.
+            root.post { contentFocusTarget().requestFocus() }
+            return
+        }
         setRailOpen(inRail)
         if (inRail) return
+        railAllowed = false
         lastContentFocus = now
         val inHero = isIn(heroButtons, now)
         heroButtons.animate().alpha(if (inHero) 1f else 0f).setDuration(220).start()
@@ -241,14 +249,20 @@ class MainActivity : AppCompatActivity(), CardHost {
         dimRows(if (inHero) null else now)
     }
 
-    /** The row you're on stays bright, the others dim slightly. */
-    private fun dimRows(focus: View?) {
-        for (i in 0 until rowsView.childCount) {
-            val child = rowsView.getChildAt(i)
-            val target = if (focus == null) 0.9f else if (isIn(child, focus)) 1f else 0.5f
-            if (child.alpha != target) child.animate().alpha(target).setDuration(220).start()
-        }
+    private fun contentFocusTarget(): View =
+        lastContentFocus?.takeIf { it.isAttachedToWindow && it.isShown && !isIn(rail, it) }
+            ?: heroPlay.takeIf { featured != null && it.isShown }
+            ?: firstRowCard() ?: heroPlay
+
+    private fun firstRowCard(): View? {
+        val row = rowsView.findViewHolderForAdapterPosition(0) as? RowsAdapter.VH ?: return null
+        val lm = row.list.layoutManager as? KeylineLayoutManager ?: return null
+        val pos = lm.findFirstCompletelyVisibleItemPosition().takeIf { it >= 0 } ?: 0
+        return row.list.findViewHolderForAdapterPosition(pos)?.itemView
     }
+
+    /** The row you're on stays bright, the others dim slightly. */
+    private fun dimRows(focus: View?) = Rows.dim(rowsView, focus, idle = 0.9f)
 
     // ------------------------------------------------------------------ loading
 
@@ -374,7 +388,11 @@ class MainActivity : AppCompatActivity(), CardHost {
                     rowsView.scrollToPosition(0)
                     feat?.let { showHero(it.title, it.kicker, it.match) }
                     if (feat != null) heroPlay.requestFocus()
-                    else rowsView.post { rowsView.findViewHolderForAdapterPosition(0)?.itemView?.requestFocus() }
+                    // Once laid out, make sure focus is on the page, not the menu.
+                    rowsView.post {
+                        val f = currentFocus
+                        if (f == null || isIn(rail, f)) contentFocusTarget().requestFocus()
+                    }
                 }
                 if (rows.isEmpty()) {
                     status.visibility = View.VISIBLE
@@ -685,6 +703,22 @@ class MainActivity : AppCompatActivity(), CardHost {
                 KeyEvent.KEYCODE_MENU -> {
                     SettingsDialog.show(this) { reload() }; return true
                 }
+                KeyEvent.KEYCODE_DPAD_LEFT -> if (focus != null && !isIn(rail, focus)) {
+                    // Only ◀ from the page (or Back) may open the menu.
+                    val next = focus.focusSearch(View.FOCUS_LEFT)
+                    if (next != null && isIn(rail, next)) railAllowed = true
+                }
+                KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_UP -> if (focus != null && !isIn(rail, focus)) {
+                    val down = event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+                    val next = focus.focusSearch(if (down) View.FOCUS_DOWN else View.FOCUS_UP)
+                    if (next == null || isIn(rail, next)) {
+                        when {
+                            down && isIn(heroButtons, focus) -> firstRowCard()?.requestFocus()
+                            !down && isIn(rowsView, focus) && featured != null -> heroPlay.requestFocus()
+                        }
+                        return true
+                    }
+                }
                 KeyEvent.KEYCODE_DPAD_RIGHT -> if (railOpen) {
                     (lastContentFocus?.takeIf { it.isAttachedToWindow && it.isShown } ?: heroPlay).requestFocus()
                     return true
@@ -704,6 +738,7 @@ class MainActivity : AppCompatActivity(), CardHost {
                             return true
                         }
                         else -> {
+                            railAllowed = true
                             nav.firstOrNull { it.view.isSelected }?.view?.requestFocus()
                             return true
                         }
