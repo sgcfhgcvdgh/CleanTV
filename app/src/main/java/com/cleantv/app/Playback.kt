@@ -83,13 +83,27 @@ object Playback {
             Toast.makeText(activity, "${game.title} has finished", Toast.LENGTH_SHORT).show()
             return
         }
-        withChannels(activity) { lib ->
-            if (lib == null) {
-                Toast.makeText(activity, "Couldn't load your channels", Toast.LENGTH_LONG).show()
-                return@withChannels
+        // Use the look-up the Sports screen already did; otherwise check the guide and names now.
+        val known = SportsGuide.matches[game.id]
+        if (known != null && Library.data != null) {
+            showMatches(activity, game, known)
+            return
+        }
+        Toast.makeText(activity, "Finding ${game.title}…", Toast.LENGTH_SHORT).show()
+        val prefs = Prefs(activity)
+        Bg.run {
+            val found = SportsGuide.matchAll(prefs, listOf(game))[game.id]
+            Bg.ui {
+                if (activity.isFinishing) return@ui
+                if (Library.data == null) Toast.makeText(activity, "Couldn't load your channels", Toast.LENGTH_LONG).show()
+                else showMatches(activity, game, found ?: emptyList())
             }
-            val pool = Library.visible(Prefs(activity)).ifEmpty { lib.channels }
-            val found = GameMatcher.find(game, pool.map { it.key to it.name })
+        }
+    }
+
+    /** One confident match plays straight away; otherwise a short list of the likeliest channels. */
+    private fun showMatches(activity: Activity, game: Game, found: List<GameMatcher.Candidate>) {
+        run {
             val keys = found.map { it.key }
             val best = found.firstOrNull()
             when {

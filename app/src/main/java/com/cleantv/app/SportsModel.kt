@@ -53,7 +53,10 @@ object SportsCatalog {
             League("Champions League", "soccer/uefa.champions", listOf("tnt sports", "amazon prime", "paramount", "cbs sports")),
             League("Europa League", "soccer/uefa.europa", listOf("tnt sports", "paramount")),
             League("Conference League", "soccer/uefa.europa.conf", listOf("tnt sports", "paramount")),
-            League("Championship", "soccer/eng.2", listOf("sky sports football", "sky sports efl", "sky sports main event")),
+            League("Championship", "soccer/eng.2", listOf("sky sports football", "sky sports efl", "sky sports main event", "sky sports")),
+            League("League One", "soccer/eng.3", listOf("sky sports football", "sky sports", "ifollow")),
+            League("League Two", "soccer/eng.4", listOf("sky sports football", "sky sports", "ifollow")),
+            League("National League", "soccer/eng.5", listOf("tnt sports", "dazn", "national league")),
             League("FA Cup", "soccer/eng.fa", listOf("bbc one", "itv", "tnt sports", "espn")),
             League("Carabao Cup", "soccer/eng.league_cup", listOf("sky sports football", "sky sports main event")),
             League("Scottish Premiership", "soccer/sco.1", listOf("sky sports", "premier sports")),
@@ -61,6 +64,8 @@ object SportsCatalog {
             League("Serie A", "soccer/ita.1", listOf("tnt sports", "paramount")),
             League("Bundesliga", "soccer/ger.1", listOf("sky sports", "espn")),
             League("Ligue 1", "soccer/fra.1", listOf("ligue 1", "bein")),
+            League("Eredivisie", "soccer/ned.1", listOf("viaplay", "espn")),
+            League("Liga Portugal", "soccer/por.1", listOf("sport tv", "benfica tv")),
             League("Nations League", "soccer/uefa.nations", listOf("sky sports", "fox")),
             League("Internationals", "soccer/fifa.friendly", listOf("itv", "bbc", "sky sports")),
             League("MLS", "soccer/usa.1", listOf("apple", "mls season pass", "fox")),
@@ -103,7 +108,13 @@ object SportsCatalog {
         )),
     )
 
-    fun sport(id: String): Sport = sports.firstOrNull { it.id == id } ?: sports.first()
+    /** Every sport at once: the main leagues of each. */
+    val all: Sport = Sport("all", "All sports", sports.flatMap { s -> s.leagues.take(if (s.id == "football") 6 else 2) })
+
+    /** The Sports screen's tabs: All sports first. */
+    val tabs: List<Sport> = listOf(all) + sports
+
+    fun sport(id: String): Sport = tabs.firstOrNull { it.id == id } ?: all
 }
 
 /** Finds the channels in your list that are likely showing a game. */
@@ -169,10 +180,21 @@ object GameMatcher {
         needle.isNotEmpty() && " $haystack ".contains(" $needle ")
 
     /**
-     * Ranks channels for a game. [channels] are (key, name) pairs from the channel list.
-     * Score 100+ means the channel name mentions both teams (a provider's event channel).
+     * Ranks channels for a game. [channels] are (key, name) pairs from the channel list;
+     * [guide] is what's on each channel (by key) from the TV guide, when known.
+     *
+     * 150+  the TV guide says this channel is showing it
+     * 100+  an event channel named after both teams, dated for this game (or undated)
+     * below  channels that mention one team, the broadcaster, or usually carry the league
+     *
+     * Event channels dated for another day, and "No Scheduled Event" / "Postponed" slots, are skipped.
      */
-    fun find(game: Game, channels: List<Pair<String, String>>): List<Candidate> {
+    fun find(
+        game: Game,
+        channels: List<Pair<String, String>>,
+        guide: Map<String, List<Programme>> = emptyMap(),
+        now: Long = System.currentTimeMillis(),
+    ): List<Candidate> {
         val teamAliases = game.competitors.takeIf { game.headToHead }?.map { c ->
             // An alias both teams share ("manchester") can't tell them apart.
             c to aliases(c)
@@ -180,25 +202,105 @@ object GameMatcher {
         val shared = if (teamAliases.size == 2) teamAliases[0].second.intersect(teamAliases[1].second.toSet()) else emptySet()
         val broadcasts = game.broadcasts.map { norm(it) }.filter { it.length >= 2 }
         val hints = game.league.hints.map { norm(it) }
+        val leagueWords = norm(game.league.name)
+        val eventWords = norm(game.eventName).split(' ').filter { it.length >= 5 && it !in GENERIC }
+        // The moment that matters: kick-off, or now if it's already on.
+        val at = if (game.state == GameState.LIVE || game.startMs <= 0) now else game.startMs
+
+        fun teamsIn(text: String) = teamAliases.filter { (_, al) -> al.any { it !in shared && containsWords(text, it) } }
 
         val out = ArrayList<Candidate>()
         for ((key, rawName) in channels) {
+            if (EventNames.isEmptySlot(rawName)) continue
+            // An event channel named for a different day is out of date: ignore its name.
+            val dated = EventNames.dateIn(rawName)
+            val staleName = dated != null && game.startMs > 0 && !EventNames.sameDay(dated, game.startMs)
             val name = normCached(rawName)
             var score = 0
             val reasons = ArrayList<String>()
-            val hitTeams = teamAliases.filter { (_, al) -> al.any { it !in shared && containsWords(name, it) } }
-            when (hitTeams.size) {
-                2 -> { score += 100; reasons += "Shows this game" }
-                1 -> { score += 40; reasons += "Mentions ${hitTeams[0].first.short.ifBlank { hitTeams[0].first.name }}" }
+
+            // 1. The TV guide.
+            val prog = guide[key]?.firstOrNull { it.start <= at + 20 * 60_000L && it.end > at }
+            if (prog != null) {
+                val text = norm(prog.title + " " + (prog.description ?: ""))
+                if (game.headToHead) {
+                    when (teamsIn(text).size) {
+                        2 -> { score += 150; reasons += "Guide: ${prog.title}" }
+                        1 -> if (containsWords(text, leagueWords) || teamsIn(name).isNotEmpty()) { score += 60; reasons += "Guide: ${prog.title}" }
+                    }
+                } else if (containsWords(text, leagueWords) || eventWords.any { containsWords(text, it) }) {
+                    score += 130; reasons += "Guide: ${prog.title}"
+                }
+            }
+
+            // 2. The channel's name.
+            if (!staleName) {
+                val hitTeams = teamsIn(name)
+                when (hitTeams.size) {
+                    2 -> { score += 100; reasons += "Shows this game" }
+                    1 -> { score += 40; reasons += "Mentions ${hitTeams[0].first.short.ifBlank { hitTeams[0].first.name }}" }
+                }
+                if (!game.headToHead && dated != null && eventWords.any { containsWords(name, it) }) {
+                    score += 100; reasons += "Shows this event"
+                }
             }
             broadcasts.firstOrNull { containsWords(name, it) }?.let { score += 30; reasons += "Broadcaster: ${it.uppercase()}" }
-            if (score < 100) hints.firstOrNull { containsWords(name, it) }?.let {
+            if (score < 100 && dated == null) hints.firstOrNull { containsWords(name, it) }?.let {
                 score += 20
                 if (reasons.isEmpty()) reasons += "Usually shows ${game.league.name}"
             }
-            if (!game.headToHead && score > 0 && containsWords(name, norm(game.league.name))) score += 10
+            if (!game.headToHead && score > 0 && containsWords(name, leagueWords)) score += 10
             if (score >= 20) out += Candidate(key, rawName, score, reasons.joinToString(" · "))
         }
         return out.sortedWith(compareByDescending<Candidate> { it.score }.thenBy { it.name.length })
+    }
+}
+
+/** Reading provider event-channel names: the date in them, and empty slots. */
+object EventNames {
+    private val MONTHS = listOf("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+    // Whole month names only, so "Marseille 3" isn't read as March 3.
+    private const val MON = """(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?(?![a-z])"""
+    // "Sat 14 Nov", "13 May"
+    private val DAY_MONTH = Regex("""(?i)(?<![\d:])(\d{1,2})\s+$MON""")
+    // "@ Nov 15 1:00 PM", "Oct 25" (but not the "3" of "Nov 3:00pm")
+    private val MONTH_DAY = Regex("""(?i)(?<![a-z])$MON\s+(\d{1,2})(?![:\d])""")
+    // "14/11"
+    private val SLASH = Regex("""(?<![\d/])(\d{1,2})/(\d{1,2})(?![\d/])""")
+    private val EMPTY = Regex("""(?i)no\s+scheduled\s+event|postponed|cancell?ed""")
+
+    fun isEmptySlot(name: String): Boolean = EMPTY.containsMatchIn(name)
+
+    /** (month 1-12, day) written in a channel name, or null. */
+    fun dateIn(name: String): Pair<Int, Int>? {
+        DAY_MONTH.find(name)?.let { m ->
+            val d = m.groupValues[1].toInt()
+            val mo = MONTHS.indexOf(m.groupValues[2].lowercase().take(3)) + 1
+            if (d in 1..31 && mo > 0) return mo to d
+        }
+        MONTH_DAY.find(name)?.let { m ->
+            val mo = MONTHS.indexOf(m.groupValues[1].lowercase().take(3)) + 1
+            val d = m.groupValues[2].toInt()
+            if (d in 1..31 && mo > 0) return mo to d
+        }
+        SLASH.find(name)?.let { m ->
+            val d = m.groupValues[1].toInt()
+            val mo = m.groupValues[2].toInt()
+            if (d in 1..31 && mo in 1..12) return mo to d
+        }
+        return null
+    }
+
+    /** Whether a (month, day) is the game's day, allowing a day either side for time zones. */
+    fun sameDay(date: Pair<Int, Int>, startMs: Long): Boolean {
+        val game = java.util.Calendar.getInstance().apply { timeInMillis = startMs }
+        for (yearShift in -1..1) {
+            val c = java.util.Calendar.getInstance().apply {
+                clear()
+                set(game.get(java.util.Calendar.YEAR) + yearShift, date.first - 1, date.second, 12, 0)
+            }
+            if (kotlin.math.abs(c.timeInMillis - startMs) <= 36 * 3_600_000L) return true
+        }
+        return false
     }
 }

@@ -36,7 +36,7 @@ class SportsActivity : AppCompatActivity(), CardHost {
     private lateinit var heroAway: ImageView
 
     private val handler = Handler(Looper.getMainLooper())
-    private var sport: Sport = SportsCatalog.sports.first()
+    private var sport: Sport = SportsCatalog.all
     private var generation = 0
     private var heroGameId: String? = null
 
@@ -61,7 +61,7 @@ class SportsActivity : AppCompatActivity(), CardHost {
         heroHome = findViewById(R.id.heroHome)
         heroAway = findViewById(R.id.heroAway)
 
-        sport = SportsCatalog.sport(prefs.lastSport.ifBlank { "football" })
+        sport = SportsCatalog.sport(prefs.lastSport.ifBlank { "all" })
 
         chips.layoutManager = KeylineLayoutManager(this, RecyclerView.HORIZONTAL)
         chips.itemAnimator = null
@@ -76,11 +76,10 @@ class SportsActivity : AppCompatActivity(), CardHost {
 
         // Games show straight away; once your channels have loaded, the ones you can watch get marked.
         load(sport, quiet = false)
-        if (Library.data == null) Playback.withChannels(this) { load(sport, quiet = true) }
         heroKicker.text = sport.name
         heroTitle.text = "Loading games…"
         chips.post {
-            val i = SportsCatalog.sports.indexOf(sport)
+            val i = SportsCatalog.tabs.indexOf(sport)
             chips.scrollToPosition(i)
             chips.post { chips.findViewHolderForAdapterPosition(i)?.itemView?.requestFocus() }
         }
@@ -122,7 +121,7 @@ class SportsActivity : AppCompatActivity(), CardHost {
         for (i in 0 until chips.childCount) {
             val c = chips.getChildAt(i)
             val pos = chips.getChildAdapterPosition(c)
-            c.isSelected = SportsCatalog.sports.getOrNull(pos)?.id == s.id
+            c.isSelected = SportsCatalog.tabs.getOrNull(pos)?.id == s.id
         }
         rowsAdapter.forgetScroll()
         load(s, quiet = false)
@@ -139,22 +138,24 @@ class SportsActivity : AppCompatActivity(), CardHost {
         val left = AtomicInteger(s.leagues.size)
         s.leagues.forEachIndexed { i, league ->
             Bg.run {
-                results[i] = runCatching { SportsFeed.games(league) }.getOrDefault(emptyList())
+                // "All sports" asks for each league's current round only, to keep it quick.
+                results[i] = runCatching { SportsFeed.games(league, extraDays = s.id != "all") }.getOrDefault(emptyList())
                 if (left.decrementAndGet() == 0) {
-                    // Matching games to channels is heavy: do it here, off the screen's thread.
-                    val built = buildRows(s, results.map { it ?: emptyList() })
-                    Bg.ui { if (gen == generation) show(s, built.first, built.second, quiet) }
+                    val perLeague = results.map { it ?: emptyList() }
+                    // Games appear straight away, using the last known channel matches...
+                    val first = buildRows(s, perLeague, SportsGuide.matches)
+                    Bg.ui { if (gen == generation) show(s, first.first, first.second, quiet) }
+                    // ...then the TV guide and today's event channels are checked, off the screen's thread.
+                    val found = SportsGuide.matchAll(prefs, perLeague.flatten())
+                    val second = buildRows(s, perLeague, found)
+                    Bg.ui { if (gen == generation) show(s, second.first, second.second, quiet = true) }
                 }
             }
         }
     }
 
-    private fun buildRows(s: Sport, perLeague: List<List<Game>>): Pair<List<Row>, Int> {
-        val channels = Library.data?.let { Library.visible(prefs) }?.map { it.key to it.name }
-        fun card(g: Game): Card.GameCard {
-            val best = channels?.let { GameMatcher.find(g, it).firstOrNull()?.score } ?: 0
-            return Card.GameCard(g, best >= 50)
-        }
+    private fun buildRows(s: Sport, perLeague: List<List<Game>>, found: Map<String, List<GameMatcher.Candidate>>): Pair<List<Row>, Int> {
+        fun card(g: Game) = Card.GameCard(g, SportsGuide.watchable(found[g.id]))
         val all = perLeague.flatten()
         val rows = ArrayList<Row>()
         val live = all.filter { it.state == GameState.LIVE }
@@ -235,10 +236,10 @@ class SportsActivity : AppCompatActivity(), CardHost {
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
             VH(LayoutInflater.from(parent.context).inflate(R.layout.item_sport_chip, parent, false))
 
-        override fun getItemCount() = SportsCatalog.sports.size
+        override fun getItemCount() = SportsCatalog.tabs.size
 
         override fun onBindViewHolder(h: VH, position: Int) {
-            val s = SportsCatalog.sports[position]
+            val s = SportsCatalog.tabs[position]
             val tv = h.itemView as TextView
             tv.text = s.name
             tv.isSelected = s.id == sport.id

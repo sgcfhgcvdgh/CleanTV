@@ -31,9 +31,9 @@ object SportsFeed {
      * Games for one league: the current round, plus today and tomorrow for team sports. Blocks.
      * (ESPN answers a date *range* with an error, so days are asked for one at a time.)
      */
-    fun games(league: League): List<Game> {
+    fun games(league: League, extraDays: Boolean = true): List<Game> {
         val base = BASE + league.path + "/scoreboard?limit=200"
-        val urls = if (league.dateRange) listOf(base, "$base&dates=${day(0)}", "$base&dates=${day(1)}") else listOf(base)
+        val urls = if (league.dateRange && extraDays) listOf(base, "$base&dates=${day(0)}", "$base&dates=${day(1)}") else listOf(base)
         val events = ArrayList<JSONObject>()
         val seen = HashSet<String>()
         for (url in urls) {

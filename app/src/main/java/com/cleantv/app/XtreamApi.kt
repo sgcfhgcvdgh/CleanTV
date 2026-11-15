@@ -95,9 +95,13 @@ class XtreamApi(serverInput: String, private val username: String, private val p
 
     private fun getArray(action: String): JSONArray {
         val url = apiUrl(action)
-        val body = Net.provider(url, 12 * Net.HOUR) { get(url) }.trim()
+        // Live channel names carry today's events, so that list is kept for 30 minutes, the rest 12 hours.
+        val ttl = if (action == "get_live_streams") 30 * Net.MINUTE else 12 * Net.HOUR
+        val body = Net.provider(url, ttl) { get(url) }.trim()
         return if (body.startsWith("[")) JSONArray(body) else JSONArray()
     }
+
+    fun forgetLiveList() = Net.forgetProvider(apiUrl("get_live_streams"))
 
     fun categories(): List<Category> {
         val arr = getArray("get_live_categories")
@@ -313,10 +317,16 @@ object Library {
     private val loadLock = Any()
 
     /** One load at a time: a second caller waits for the first and gets its result. */
-    fun load(api: XtreamApi): GroupedLibrary = synchronized(loadLock) { loadLocked(api) }
+    @Volatile
+    var loadedAt = 0L
+        private set
 
-    private fun loadLocked(api: XtreamApi): GroupedLibrary {
-        data?.let { return it }
+    /** [force] fetches a fresh list (event channels are renamed through the day). */
+    fun load(api: XtreamApi, force: Boolean = false): GroupedLibrary = synchronized(loadLock) { loadLocked(api, force) }
+
+    private fun loadLocked(api: XtreamApi, force: Boolean): GroupedLibrary {
+        if (!force) data?.let { return it }
+        if (force) api.forgetLiveList()
         val cats = api.categories()
         val streams = api.streams()
         if (streams.isEmpty()) throw ApiException("Your account has no live channels")
@@ -325,6 +335,7 @@ object Library {
             byKey.clear()
             lib.channels.forEach { byKey[it.key] = it }
             data = lib
+            loadedAt = System.currentTimeMillis()
         }
         return lib
     }

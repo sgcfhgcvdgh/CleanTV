@@ -62,6 +62,37 @@ object Epg {
         }
     }
 
+    /**
+     * What's on each channel, fetched together (blocks; call from a background thread).
+     * Guides younger than 20 minutes are reused.
+     */
+    fun loadAll(prefs: Prefs, groups: List<ChannelGroup>): Map<String, List<Programme>> {
+        val api = XtreamApi(prefs.server, prefs.username, prefs.password)
+        val now = System.currentTimeMillis()
+        val out = java.util.concurrent.ConcurrentHashMap<String, List<Programme>>()
+        val todo = ArrayList<Pair<ChannelGroup, Int>>()
+        for (g in groups) {
+            val id = streamOf(g) ?: continue
+            val fresh = synchronized(this) { cache[id]?.takeIf { now - (fetchedAt[id] ?: 0L) < 20 * 60_000L } }
+            if (fresh != null) out[g.key] = fresh else todo += g to id
+        }
+        if (todo.isNotEmpty()) {
+            val ex = Executors.newFixedThreadPool(4)
+            try {
+                ex.invokeAll(todo.map { (g, id) ->
+                    java.util.concurrent.Callable {
+                        val list = runCatching { api.shortEpg(id, 10) }.getOrDefault(emptyList())
+                        synchronized(this) { cache[id] = list; fetchedAt[id] = System.currentTimeMillis() }
+                        out[g.key] = list
+                    }
+                }, 25, java.util.concurrent.TimeUnit.SECONDS)
+            } finally {
+                ex.shutdownNow()
+            }
+        }
+        return out
+    }
+
     private val clock = SimpleDateFormat("HH:mm", Locale.UK)
 
     fun time(ms: Long): String = synchronized(clock) { clock.format(Date(ms)) }

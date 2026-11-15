@@ -82,6 +82,10 @@ object Net {
         }
     }
 
+    fun forgetProvider(key: String) {
+        cacheDir?.let { File(it, "p_" + hash(key)).delete() }
+    }
+
     /** Forget the provider lists (Settings → Refresh, or a different account). */
     fun clearProvider() {
         cacheDir?.listFiles()?.filter { it.name.startsWith("p_") }?.forEach { it.delete() }

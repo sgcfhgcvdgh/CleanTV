@@ -348,16 +348,13 @@ class MainActivity : AppCompatActivity(), CardHost {
 
     private fun loadLiveSports() {
         if (section != Section.HOME) return
-        val leagues = SportsCatalog.sports.map { it.leagues.first() } +
-            SportsCatalog.sport("football").leagues.drop(1).take(2)
+        val leagues = SportsCatalog.all.leagues
         Bg.run {
-            val games = leagues.flatMap { l -> runCatching { SportsFeed.games(l) }.getOrDefault(emptyList()) }
+            val games = leagues.flatMap { l -> runCatching { SportsFeed.games(l, extraDays = false) }.getOrDefault(emptyList()) }
                 .filter { it.state == GameState.LIVE }
-            val channels = Library.data?.let { Library.visible(prefs) }?.map { it.key to it.name }
-            val cards = games.map { g ->
-                val best = channels?.let { GameMatcher.find(g, it).firstOrNull()?.score } ?: 0
-                Card.GameCard(g, best >= 50)
-            }.sortedByDescending { it.watchable }
+            val found = if (Library.data != null) SportsGuide.matchAll(prefs, games) else emptyMap()
+            val cards = games.map { g -> Card.GameCard(g, SportsGuide.watchable(found[g.id])) }
+                .sortedByDescending { it.watchable }
             Bg.ui {
                 if (isFinishing || section != Section.HOME) return@ui
                 val row = if (cards.isEmpty()) null else Row("live-sports", "Live sports now", cards, RowStyle.GAME)
