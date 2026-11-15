@@ -129,27 +129,52 @@ class SportsActivity : AppCompatActivity(), CardHost {
 
     private fun load(s: Sport, quiet: Boolean) {
         val gen = ++generation
+        val extra = s.id != "all" // "All sports" asks for each league's current round only
+        val n = s.leagues.size
+        val cached = arrayOfNulls<List<Game>>(n)
+        val fresh = arrayOfNulls<List<Game>>(n)
+        val left = AtomicInteger(n)
+        val firstShown = java.util.concurrent.atomic.AtomicBoolean(quiet)
+
+        /** Rows from whatever has arrived: fresh answers where we have them, last time's otherwise. */
+        fun current(): List<List<Game>> = (0 until n).map { fresh[it] ?: cached[it] ?: emptyList() }
+
+        fun showNow(matches: Map<String, List<GameMatcher.Candidate>>) {
+            val built = buildRows(s, current(), matches)
+            Bg.ui {
+                if (gen != generation) return@ui
+                // The first time this sport is shown the list starts at the top; after that it just fills in.
+                show(s, built.first, built.second, quiet = firstShown.getAndSet(true))
+            }
+        }
+
         if (!quiet) {
             status.visibility = View.VISIBLE
             status.text = "Loading ${s.name}…"
-            rowsView.animate().alpha(0.3f).setDuration(150).start()
+            // Instantly: the games saved last time (even before a restart), with the last channel matches.
+            SportsFeed.pool.execute {
+                for (i in 0 until n) cached[i] = runCatching { SportsFeed.games(s.leagues[i], extra, offline = true) }.getOrNull()
+                if (gen == generation && cached.any { !it.isNullOrEmpty() } && fresh.all { it == null }) showNow(SportsGuide.matches)
+            }
         }
-        val results = arrayOfNulls<List<Game>>(s.leagues.size)
-        val left = AtomicInteger(s.leagues.size)
+
+        val pending = java.util.concurrent.atomic.AtomicBoolean(false)
         s.leagues.forEachIndexed { i, league ->
-            Bg.run {
-                // "All sports" asks for each league's current round only, to keep it quick.
-                results[i] = runCatching { SportsFeed.games(league, extraDays = s.id != "all") }.getOrDefault(emptyList())
-                if (left.decrementAndGet() == 0) {
-                    val perLeague = results.map { it ?: emptyList() }
-                    // Games appear straight away, using the last known channel matches...
-                    val first = buildRows(s, perLeague, SportsGuide.matches)
-                    Bg.ui { if (gen == generation) show(s, first.first, first.second, quiet) }
-                    // ...then the TV guide and today's event channels are checked, off the screen's thread.
-                    val found = SportsGuide.matchAll(prefs, perLeague.flatten())
-                    val second = buildRows(s, perLeague, found)
-                    Bg.ui { if (gen == generation) show(s, second.first, second.second, quiet = true) }
+            SportsFeed.pool.execute {
+                fresh[i] = runCatching { SportsFeed.games(league, extra) }.getOrDefault(emptyList())
+                if (gen != generation) return@execute
+                if (left.decrementAndGet() > 0) {
+                    // Each league slots in as it arrives (at most a few redraws a second).
+                    if (pending.compareAndSet(false, true)) handler.postDelayed({
+                        pending.set(false)
+                        if (gen == generation) SportsFeed.pool.execute { showNow(SportsGuide.matches) }
+                    }, 300)
+                    return@execute
                 }
+                showNow(SportsGuide.matches)
+                // Then which games are on your channels: TV listings, the guide and event channels.
+                val found = SportsGuide.matchAll(prefs, current().flatten())
+                if (gen == generation) showNow(found)
             }
         }
     }
@@ -178,9 +203,10 @@ class SportsActivity : AppCompatActivity(), CardHost {
         if (quiet && sameShape) {
             // Scores changed but nothing moved: refresh in place so focus stays put.
             rows.forEach { rowsAdapter.update(it) }
-        } else if (!quiet || !isIn(rowsView, currentFocus)) {
+        } else {
+            // Stable ids keep focus on the same card while rows are added around it.
             rowsAdapter.submit(rows)
-            rowsView.scrollToPosition(0)
+            if (!quiet) rowsView.scrollToPosition(0)
         }
         rowsView.animate().alpha(1f).setDuration(220).start()
         status.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE

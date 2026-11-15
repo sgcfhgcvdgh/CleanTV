@@ -66,6 +66,11 @@ class Prefs(context: Context) {
         get() = sp.getString("lastSport", "") ?: ""
         set(v) = sp.edit().putString("lastSport", v).apply()
 
+    /** Live TV player engine: 0 = VLC (default), 1 = ExoPlayer. */
+    var liveEngine: Int
+        get() = sp.getInt("liveEngine", LiveEngine.VLC)
+        set(v) = sp.edit().putInt("liveEngine", v).apply()
+
     /** Live picture: 0 = fit, 1 = zoom to fill, 2 = stretch. */
     var aspect: Int
         get() = sp.getInt("aspect", 0)

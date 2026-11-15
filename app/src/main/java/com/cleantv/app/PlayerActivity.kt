@@ -11,52 +11,32 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
-import androidx.annotation.OptIn
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.media3.common.C
-import androidx.media3.common.Format
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
-import androidx.media3.common.TrackSelectionOverride
-import androidx.media3.common.Tracks
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.exoplayer.DefaultLoadControl
-import androidx.media3.exoplayer.DefaultRenderersFactory
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.extractor.DefaultExtractorsFactory
-import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
-import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil.dispose
 import coil.load
-import java.util.Locale
+import org.videolan.libvlc.util.VLCVideoLayout
 
 /**
  * Live TV player.
- *  OK / Menu   -> options (quality, audio, subtitles, picture, stream type, favourite, reload)
+ *  OK / Menu   -> options (quality, player, audio, subtitles, picture, stream type, favourite, reload)
  *  ◀           -> channel list with what's on
  *  ▲ / ▼       -> previous / next channel
  *  ▶ / Info    -> info bar (now and next)
  *
- * It watches itself: if the picture freezes or the stream stalls it reconnects, then tries
- * another quality, then the other stream type, before giving up.
+ * It watches itself: if the picture freezes or the stream stalls it reconnects; if ExoPlayer keeps
+ * freezing it moves to VLC; then it tries other qualities and the other stream type.
  */
-@OptIn(UnstableApi::class)
-class PlayerActivity : AppCompatActivity() {
+class PlayerActivity : AppCompatActivity(), LiveEngine.Listener {
 
     companion object {
         const val EXTRA_KEY = "key"
         const val EXTRA_LIST = "list"
 
-        private const val FROZEN_MS = 8_000L
+        private const val FROZEN_MS = 6_000L
         private const val STALLED_MS = 15_000L
         private const val STEADY_MS = 60_000L
     }
@@ -64,6 +44,7 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var prefs: Prefs
     private lateinit var api: XtreamApi
     private lateinit var playerView: PlayerView
+    private lateinit var vlcLayout: VLCVideoLayout
     private lateinit var overlay: View
     private lateinit var overlayLogo: ImageView
     private lateinit var overlayName: TextView
@@ -81,7 +62,9 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var channelList: RecyclerView
     private lateinit var listAdapter: ChannelListAdapter
 
-    private var player: ExoPlayer? = null
+    private var engine: LiveEngine? = null
+    /** Which engine this session uses (starts from Settings, may switch itself). */
+    private var engineType = LiveEngine.VLC
     private var keys: List<String> = emptyList()
     private var index = 0
     private var group: ChannelGroup? = null
@@ -117,7 +100,9 @@ class PlayerActivity : AppCompatActivity() {
         prefs = Prefs(this)
         api = XtreamApi(prefs.server, prefs.username, prefs.password)
         hls = prefs.useHls
+        engineType = prefs.liveEngine
         playerView = findViewById(R.id.playerView)
+        vlcLayout = findViewById(R.id.vlcLayout)
         overlay = findViewById(R.id.overlay)
         overlayLogo = findViewById(R.id.overlayLogo)
         overlayName = findViewById(R.id.overlayName)
@@ -136,7 +121,6 @@ class PlayerActivity : AppCompatActivity() {
 
         playerView.useController = false
         playerView.isFocusable = false
-        applyAspect()
 
         val key = intent.getStringExtra(EXTRA_KEY)
         keys = intent.getStringArrayListExtra(EXTRA_LIST) ?: arrayListOf()
@@ -167,15 +151,16 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
-        if (player == null) initPlayer()
+        if (engine == null) createEngine()
+        engine?.start()
         current?.let { playVariant(it, announce = false) }
         handler.postDelayed(watchdog, 2_000)
     }
 
     override fun onStop() {
         handler.removeCallbacks(watchdog)
-        player?.release()
-        player = null
+        engine?.release()
+        engine = null
         super.onStop()
     }
 
@@ -185,50 +170,66 @@ class PlayerActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    private fun initPlayer() {
-        val http = DefaultHttpDataSource.Factory()
-            .setUserAgent(XtreamApi.USER_AGENT)
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(12_000)
-            .setReadTimeoutMs(15_000)
-        val extractors = DefaultExtractorsFactory().setTsExtractorFlags(
-            DefaultTsPayloadReaderFactory.FLAG_ALLOW_NON_IDR_KEYFRAMES or
-                DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS
-        )
-        val sources = DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http), extractors)
-        // Live TV: start quickly, but keep enough in hand to ride out a wobbly connection.
-        val load = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(12_000, 40_000, 1_500, 3_000)
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .build()
-        // If the TV's preferred decoder can't cope with a stream, fall back to another one.
-        val renderers = DefaultRenderersFactory(this).setEnableDecoderFallback(true)
-        val p = ExoPlayer.Builder(this, renderers)
-            .setMediaSourceFactory(sources)
-            .setLoadControl(load)
-            .build()
-        p.playWhenReady = true
-        p.addListener(object : Player.Listener {
-            override fun onPlaybackStateChanged(state: Int) {
-                loading.visibility = if (state == Player.STATE_BUFFERING) View.VISIBLE else View.GONE
-                when (state) {
-                    Player.STATE_READY -> {
-                        reachedReady = true
-                        errorText.visibility = View.GONE
-                        if (readySince == 0L) readySince = SystemClock.elapsedRealtime()
-                    }
-                    // A live stream "ending" means the connection dropped: reconnect.
-                    Player.STATE_ENDED -> current?.let { playVariant(it, announce = false) }
-                    else -> {}
-                }
-            }
+    private fun createEngine() {
+        engine = runCatching {
+            if (engineType == LiveEngine.VLC) VlcEngine(this, vlcLayout, this) else ExoEngine(this, playerView, this)
+        }.getOrElse {
+            // VLC couldn't start on this device: use ExoPlayer instead.
+            engineType = LiveEngine.EXO
+            ExoEngine(this, playerView, this)
+        }
+        if (engineType == LiveEngine.VLC) playerView.visibility = View.GONE else vlcLayout.visibility = View.GONE
+        engine?.setAspect(prefs.aspect)
+    }
 
-            override fun onPlayerError(error: PlaybackException) = onStreamFailed(error)
+    private fun switchEngine(type: Int, why: String?) {
+        if (type == engineType && engine != null) return
+        engine?.release()
+        engine = null
+        engineType = type
+        createEngine()
+        engine?.start()
+        why?.let { say(it) }
+        failed.clear(); retries = 0; recoveries = 0
+        current?.let { playVariant(it, announce = true) }
+    }
 
-            override fun onTracksChanged(tracks: Tracks) = updateOverlay()
-        })
-        playerView.player = p
-        player = p
+    // ------------------------------------------------------------------ engine events
+
+    override fun onReady() {
+        loading.visibility = View.GONE
+        reachedReady = true
+        errorText.visibility = View.GONE
+        if (readySince == 0L) readySince = SystemClock.elapsedRealtime()
+        updateOverlay()
+    }
+
+    override fun onBuffering() {
+        loading.visibility = View.VISIBLE
+    }
+
+    override fun onEnded() {
+        // A live stream "ending" means the connection dropped: reconnect.
+        current?.let { playVariant(it, announce = false) }
+    }
+
+    override fun onTracksChanged() = updateOverlay()
+
+    override fun onError(behindLive: Boolean) {
+        val cur = current ?: return
+        // Fell too far behind the live edge: jump back to live.
+        if (behindLive) {
+            engine?.jumpToLive()
+            return
+        }
+        // It was playing, or this is the first hiccup: reconnect a few times with a growing pause.
+        if (retries < 3 && (reachedReady || retries == 0)) {
+            retries++
+            loading.visibility = View.VISIBLE
+            handler.postDelayed({ if (current == cur) playVariant(cur, announce = false) }, 800L * retries)
+            return
+        }
+        nextOption(cur, "${cur.label} won't play")
     }
 
     // ------------------------------------------------------------------ playing
@@ -242,7 +243,7 @@ class PlayerActivity : AppCompatActivity() {
         order = ChannelGrouper.playOrder(g, prefs.defaultQuality)
         current = order.firstOrNull()
         errorText.visibility = View.GONE
-        current?.let { if (player != null) playVariant(it, announce = true) }
+        current?.let { if (engine != null) playVariant(it, announce = true) }
         updateOverlay()
         showOverlay()
         loadGuide(g)
@@ -252,36 +253,10 @@ class PlayerActivity : AppCompatActivity() {
         current = v
         reachedReady = false
         resetWatchdog()
-        val item = MediaItem.Builder()
-            .setUri(api.streamUrl(v.stream.id, hls))
-            .setMimeType(if (hls) MimeTypes.APPLICATION_M3U8 else MimeTypes.VIDEO_MP2T)
-            .build()
-        player?.let {
-            it.setMediaItem(item)
-            it.prepare()
-            it.play()
-        }
+        loading.visibility = View.VISIBLE
+        engine?.play(api.streamUrl(v.stream.id, hls), hls)
         updateOverlay()
         if (announce) showOverlay()
-    }
-
-    private fun onStreamFailed(error: PlaybackException) {
-        val cur = current ?: return
-        val p = player
-        // Fell too far behind the live edge: jump back to live.
-        if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW && p != null) {
-            p.seekToDefaultPosition()
-            p.prepare()
-            return
-        }
-        // It was playing, or this is the first hiccup: reconnect a few times with a growing pause.
-        if (retries < 3 && (reachedReady || retries == 0)) {
-            retries++
-            loading.visibility = View.VISIBLE
-            handler.postDelayed({ if (current == cur) playVariant(cur, announce = false) }, 800L * retries)
-            return
-        }
-        nextOption(cur, "${cur.label} won't play")
     }
 
     /** Moves on to the next thing worth trying: another quality, then the other stream type. */
@@ -318,24 +293,21 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     /**
-     * Every 2 seconds: is the picture actually moving? A frozen frame with the player still
-     * "playing" (the decoder has stalled) or endless buffering gets the stream reconnected.
+     * Every 2 seconds: is the picture actually moving? A frozen frame while the player says it's
+     * playing, or endless buffering, gets the stream reconnected.
      */
     private val watchdog = object : Runnable {
         override fun run() {
-            val p = player
-            if (p != null && p.playWhenReady && !isFinishing) {
+            val e = engine
+            if (e != null && !isFinishing) {
                 val now = SystemClock.elapsedRealtime()
-                when (p.playbackState) {
-                    Player.STATE_READY -> {
+                when {
+                    e.isReady -> {
                         bufferingSince = 0L
-                        val counters = p.videoDecoderCounters
-                        counters?.ensureUpdated()
-                        val frames = counters?.renderedOutputBufferCount ?: -1
-                        val pos = p.currentPosition
-                        val hasVideo = p.videoFormat != null
-                        val moving = if (hasVideo && frames >= 0) frames != lastFrames else pos != lastPos
-                        if (!moving && lastFrames != -1) {
+                        val frames = e.framesShown()
+                        val pos = e.positionMs()
+                        val moving = if (e.hasVideo() && frames >= 0) frames != lastFrames else pos != lastPos
+                        if (!moving && (lastFrames != -1 || lastPos != -1L)) {
                             if (stuckSince == 0L) stuckSince = now
                             else if (now - stuckSince > FROZEN_MS) recover("The picture froze")
                         } else stuckSince = 0L
@@ -344,7 +316,7 @@ class PlayerActivity : AppCompatActivity() {
                         // Playing smoothly for a minute: forget earlier trouble.
                         if (readySince > 0 && now - readySince > STEADY_MS) recoveries = 0
                     }
-                    Player.STATE_BUFFERING -> {
+                    e.isBuffering -> {
                         if (bufferingSince == 0L) bufferingSince = now
                         else if (now - bufferingSince > STALLED_MS) recover("The stream stalled")
                     }
@@ -361,26 +333,39 @@ class PlayerActivity : AppCompatActivity() {
         val cur = current ?: return
         recoveries++
         resetWatchdog()
-        if (recoveries <= 2) {
-            say("$why – reconnecting")
-            playVariant(cur, announce = false)
-        } else {
-            recoveries = 0
-            nextOption(cur, why)
+        when {
+            // ExoPlayer freezing again on the same stream: VLC copes with these far better.
+            recoveries >= 2 && engineType == LiveEngine.EXO -> switchEngine(LiveEngine.VLC, "$why – switching to the VLC player")
+            recoveries <= 2 -> {
+                say("$why – reconnecting")
+                playVariant(cur, announce = false)
+            }
+            else -> {
+                recoveries = 0
+                nextOption(cur, why)
+            }
         }
     }
 
     // ------------------------------------------------------------------ options
 
+    private class Opt(val label: String, val action: () -> Unit)
+
     private fun showOptions() {
         val g = group ?: return
+        val e = engine
         val fav = prefs.favourites.contains(g.key)
-        val audio = tracks(C.TRACK_TYPE_AUDIO)
-        val subs = tracks(C.TRACK_TYPE_TEXT)
+        val audio = e?.audioTracks() ?: emptyList()
+        val subs = e?.subtitleTracks() ?: emptyList()
         val items = ArrayList<Opt>()
-        items += Opt("Quality: ${current?.label ?: "-"}" + (if (g.variants.size > 1) "  (${g.variants.size} versions)" else "")) { pickQuality() }
-        if (audio.size > 1) items += Opt("Audio: ${selected(audio)}") { pickTrack(C.TRACK_TYPE_AUDIO, audio, allowOff = false) }
-        if (subs.isNotEmpty()) items += Opt("Subtitles: ${if (isTextOff()) "Off" else selected(subs)}") { pickTrack(C.TRACK_TYPE_TEXT, subs, allowOff = true) }
+        items += Opt("Quality: ${current?.label ?: "-"}" + if (g.variants.size > 1) "  (${g.variants.size} versions)" else "") { pickQuality() }
+        items += Opt("Player: ${if (engineType == LiveEngine.VLC) "VLC" else "ExoPlayer"}") {
+            val type = if (engineType == LiveEngine.VLC) LiveEngine.EXO else LiveEngine.VLC
+            prefs.liveEngine = type
+            switchEngine(type, "Switched to ${if (type == LiveEngine.VLC) "VLC" else "ExoPlayer"}")
+        }
+        if (audio.size > 1) items += Opt("Audio: ${audio.firstOrNull { it.selected }?.label ?: "Auto"}") { pickTrack(true, audio) }
+        if (subs.isNotEmpty()) items += Opt("Subtitles: ${if (e?.subtitlesOff() != false) "Off" else subs.firstOrNull { it.selected }?.label ?: "On"}") { pickTrack(false, subs) }
         items += Opt("Picture: ${aspectName(prefs.aspect)}") { pickAspect() }
         items += Opt("Stream type: ${if (hls) "HLS (.m3u8)" else "MPEG-TS (.ts)"}") {
             hls = !hls
@@ -388,7 +373,7 @@ class PlayerActivity : AppCompatActivity() {
             failed.clear()
             current?.let { playVariant(it, announce = true) }
         }
-        items += Opt((if (fav) "Remove from favourites" else "Add to favourites")) { toggleFavourite(g) }
+        items += Opt(if (fav) "Remove from favourites" else "Add to favourites") { toggleFavourite(g) }
         items += Opt("Reload channel") {
             failed.clear(); retries = 0; recoveries = 0
             current?.let { playVariant(it, announce = true) }
@@ -424,69 +409,24 @@ class PlayerActivity : AppCompatActivity() {
             .show()
     }
 
-    private class Opt(val label: String, val action: () -> Unit)
-
-    private class TrackChoice(val group: Tracks.Group, val index: Int, val label: String, val selected: Boolean)
-
-    private fun tracks(type: Int): List<TrackChoice> {
-        val p = player ?: return emptyList()
-        val out = ArrayList<TrackChoice>()
-        for (gr in p.currentTracks.groups) {
-            if (gr.type != type) continue
-            for (i in 0 until gr.length) {
-                if (!gr.isTrackSupported(i)) continue
-                out += TrackChoice(gr, i, trackLabel(gr.getTrackFormat(i), out.size + 1), gr.isTrackSelected(i))
-            }
-        }
-        return out
-    }
-
-    private fun trackLabel(f: Format, n: Int): String {
-        val lang = f.language?.takeIf { it.isNotBlank() && it != "und" }
-            ?.let { Locale(it).displayLanguage.ifBlank { it } }
-        val channels = when (f.channelCount) {
-            1 -> "mono"; 2 -> "stereo"; 6 -> "5.1"; 8 -> "7.1"; else -> null
-        }
-        return listOfNotNull(f.label ?: lang ?: "Track $n", channels).joinToString(" · ")
-    }
-
-    private fun selected(list: List<TrackChoice>) = list.firstOrNull { it.selected }?.label ?: "Auto"
-
-    private fun isTextOff(): Boolean =
-        player?.trackSelectionParameters?.disabledTrackTypes?.contains(C.TRACK_TYPE_TEXT) == true ||
-            tracks(C.TRACK_TYPE_TEXT).none { it.selected }
-
-    private fun pickTrack(type: Int, list: List<TrackChoice>, allowOff: Boolean) {
-        val p = player ?: return
+    private fun pickTrack(audio: Boolean, list: List<EngineTrack>) {
+        val e = engine ?: return
+        val allowOff = !audio
         val labels = (if (allowOff) listOf("Off") else emptyList()) + list.map { it.label }
-        val sel = if (allowOff && isTextOff()) 0 else list.indexOfFirst { it.selected }.let { if (allowOff) it + 1 else it }.coerceAtLeast(0)
+        val selected = list.indexOfFirst { it.selected }
+        val sel = if (allowOff) (if (e.subtitlesOff()) 0 else selected + 1) else selected.coerceAtLeast(0)
         dialog?.dismiss()
         dialog = AlertDialog.Builder(this)
-            .setTitle(if (type == C.TRACK_TYPE_AUDIO) "Audio" else "Subtitles")
-            .setSingleChoiceItems(labels.toTypedArray(), sel) { d, which ->
+            .setTitle(if (audio) "Audio" else "Subtitles")
+            .setSingleChoiceItems(labels.toTypedArray(), sel.coerceAtLeast(0)) { d, which ->
                 d.dismiss()
-                val b = p.trackSelectionParameters.buildUpon()
-                if (allowOff && which == 0) {
-                    b.setTrackTypeDisabled(type, true)
-                } else {
-                    val t = list[if (allowOff) which - 1 else which]
-                    b.setTrackTypeDisabled(type, false)
-                    b.setOverrideForType(TrackSelectionOverride(t.group.mediaTrackGroup, t.index))
-                }
-                p.trackSelectionParameters = b.build()
+                if (audio) e.selectAudio(list[which])
+                else e.selectSubtitle(if (which == 0) null else list[which - 1])
             }
             .show()
     }
 
     private fun aspectName(a: Int) = when (a) { 1 -> "Zoom to fill"; 2 -> "Stretch"; else -> "Fit" }
-
-    private fun applyAspect() {
-        playerView.resizeMode = when (prefs.aspect) {
-            1 -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-            2 -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-        }
-    }
 
     private fun pickAspect() {
         val labels = arrayOf("Fit (whole picture)", "Zoom to fill (crops edges)", "Stretch")
@@ -496,7 +436,7 @@ class PlayerActivity : AppCompatActivity() {
             .setSingleChoiceItems(labels, prefs.aspect) { d, which ->
                 d.dismiss()
                 prefs.aspect = which
-                applyAspect()
+                engine?.setAspect(which)
             }
             .show()
     }
@@ -554,8 +494,9 @@ class PlayerActivity : AppCompatActivity() {
         overlayName.text = g.name
         val bits = ArrayList<String>()
         current?.label?.let { bits += it }
-        player?.videoFormat?.let { f -> if (f.height > 0) bits += "${f.height}p" + if (f.frameRate > 0) " ${f.frameRate.toInt()}fps" else "" }
+        engine?.videoInfo()?.let { bits += it }
         bits += if (hls) "HLS" else "TS"
+        bits += if (engineType == LiveEngine.VLC) "VLC" else "ExoPlayer"
         if (g.variants.size > 1) bits += "${g.variants.size} versions"
         overlayQuality.text = bits.joinToString("  ·  ")
         overlayPos.text = if (keys.size > 1) "${index + 1} / ${keys.size}" else ""

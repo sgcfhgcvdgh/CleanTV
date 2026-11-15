@@ -13,6 +13,10 @@ android {
         targetSdk = 34
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
         versionName = "1.0." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
+        // Fire TV and Android TV boxes are ARM; leaving out x86 keeps VLC's libraries from doubling the size.
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+        }
     }
 
     signingConfigs {
@@ -48,6 +52,9 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:$media3")
     implementation("androidx.media3:media3-exoplayer-hls:$media3")
     implementation("androidx.media3:media3-ui:$media3")
+    implementation("androidx.media3:media3-datasource-okhttp:$media3")
+    // VLC: the default live TV player, very tolerant of glitchy IPTV streams.
+    implementation("org.videolan.android:libvlc-all:3.6.2")
     implementation("io.coil-kt:coil:2.7.0")
 
     testImplementation("junit:junit:4.13.2")

@@ -350,9 +350,10 @@ class MainActivity : AppCompatActivity(), CardHost {
         if (section != Section.HOME) return
         val leagues = SportsCatalog.all.leagues
         Bg.run {
-            val games = leagues.flatMap { l -> runCatching { SportsFeed.games(l, extraDays = false) }.getOrDefault(emptyList()) }
-                .filter { it.state == GameState.LIVE }
-            val found = if (Library.data != null) SportsGuide.matchAll(prefs, games) else emptyMap()
+            val all = leagues.flatMap { l -> runCatching { SportsFeed.games(l, extraDays = false) }.getOrDefault(emptyList()) }
+            val games = all.filter { it.state == GameState.LIVE }
+            // Matching every game now (in the background) means Sports opens with its channels ready.
+            val found = if (Library.data != null) SportsGuide.matchAll(prefs, all) else emptyMap()
             val cards = games.map { g -> Card.GameCard(g, SportsGuide.watchable(found[g.id])) }
                 .sortedByDescending { it.watchable }
             Bg.ui {

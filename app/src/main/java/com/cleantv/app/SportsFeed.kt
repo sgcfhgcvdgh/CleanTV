@@ -31,13 +31,22 @@ object SportsFeed {
      * Games for one league: the current round, plus today and tomorrow for team sports. Blocks.
      * (ESPN answers a date *range* with an error, so days are asked for one at a time.)
      */
-    fun games(league: League, extraDays: Boolean = true): List<Game> {
+    /** Sports requests run 8 at a time, apart from the app's other background work. */
+    val pool: java.util.concurrent.ExecutorService = java.util.concurrent.Executors.newFixedThreadPool(8)
+
+    /**
+     * [offline] returns what was saved last time without asking ESPN (instant, survives restarts).
+     * The plain scoreboard already holds today and the current round; sports played every day
+     * (basketball, hockey, baseball) also ask for tomorrow.
+     */
+    fun games(league: League, extraDays: Boolean = true, offline: Boolean = false): List<Game> {
         val base = BASE + league.path + "/scoreboard?limit=200"
-        val urls = if (league.dateRange && extraDays) listOf(base, "$base&dates=${day(0)}", "$base&dates=${day(1)}") else listOf(base)
+        val daily = league.path.startsWith("basketball/") || league.path.startsWith("hockey/") || league.path.startsWith("baseball/")
+        val urls = if (daily && extraDays) listOf(base, "$base&dates=${day(1)}") else listOf(base)
         val events = ArrayList<JSONObject>()
         val seen = HashSet<String>()
         for (url in urls) {
-            val body = Net.get(url, 45_000L) ?: continue
+            val body = Net.get(url, 45_000L, offline = offline) ?: continue
             val arr = runCatching { JSONObject(body).optJSONArray("events") }.getOrNull() ?: continue
             for (i in 0 until arr.length()) {
                 val e = arr.optJSONObject(i) ?: continue

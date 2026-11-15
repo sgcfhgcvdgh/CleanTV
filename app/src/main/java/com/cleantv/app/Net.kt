@@ -37,8 +37,10 @@ object Net {
      * GET a URL as text. Answers younger than [ttlMs] come from the disk cache; if the network
      * fails, an older cached answer is used rather than nothing.
      */
-    fun get(url: String, ttlMs: Long, headers: Map<String, String> = emptyMap()): String? {
+    fun get(url: String, ttlMs: Long, headers: Map<String, String> = emptyMap(), offline: Boolean = false): String? {
         val file = cacheDir?.let { File(it, hash(url)) }
+        // offline: whatever was saved last time, however old, without touching the network.
+        if (offline) return file?.takeIf { it.exists() }?.let { runCatching { it.readText() }.getOrNull() }
         if (file != null && file.exists() && System.currentTimeMillis() - file.lastModified() < ttlMs) {
             return runCatching { file.readText() }.getOrNull()
         }
@@ -81,6 +83,9 @@ object Net {
             file?.takeIf { it.exists() }?.let { f -> runCatching { f.readText() }.getOrNull() } ?: throw e
         }
     }
+
+    /** A file of the app's own in the cache folder. */
+    fun file(name: String): File? = cacheDir?.let { File(it, name) }
 
     fun forgetProvider(key: String) {
         cacheDir?.let { File(it, "p_" + hash(key)).delete() }

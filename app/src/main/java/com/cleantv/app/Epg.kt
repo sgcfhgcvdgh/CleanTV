@@ -35,6 +35,7 @@ object Epg {
     }
 
     fun fetch(prefs: Prefs, g: ChannelGroup, done: (List<Programme>) -> Unit) {
+        restoreOnce()
         val id = streamOf(g) ?: return done(emptyList())
         cached(id)?.let { return done(it) }
         synchronized(this) {
@@ -67,6 +68,7 @@ object Epg {
      * Guides younger than 20 minutes are reused.
      */
     fun loadAll(prefs: Prefs, groups: List<ChannelGroup>): Map<String, List<Programme>> {
+        restoreOnce()
         val api = XtreamApi(prefs.server, prefs.username, prefs.password)
         val now = System.currentTimeMillis()
         val out = java.util.concurrent.ConcurrentHashMap<String, List<Programme>>()
@@ -89,8 +91,57 @@ object Epg {
             } finally {
                 ex.shutdownNow()
             }
+            save()
         }
         return out
+    }
+
+    // ---- Kept on the TV, so a restart doesn't mean fetching every guide again ----
+
+    private var restored = false
+
+    @Synchronized
+    private fun restoreOnce() {
+        if (restored) return
+        restored = true
+        val f = Net.file("epg_snapshot.json") ?: return
+        if (!f.exists() || System.currentTimeMillis() - f.lastModified() > 6 * 3_600_000L) return
+        runCatching {
+            val root = org.json.JSONObject(f.readText())
+            val now = System.currentTimeMillis()
+            for (k in root.keys()) {
+                val o = root.getJSONObject(k)
+                val arr = o.getJSONArray("p")
+                val list = (0 until arr.length()).map { i ->
+                    val p = arr.getJSONArray(i)
+                    Programme(p.getString(0), p.optString(1).ifBlank { null }, p.getLong(2), p.getLong(3))
+                }.filter { it.end > now }
+                val id = k.toIntOrNull() ?: continue
+                if (cache[id] == null) {
+                    cache[id] = list
+                    fetchedAt[id] = o.optLong("t")
+                }
+            }
+        }
+    }
+
+    @Synchronized
+    private fun save() {
+        val f = Net.file("epg_snapshot.json") ?: return
+        val now = System.currentTimeMillis()
+        runCatching {
+            val root = org.json.JSONObject()
+            for ((id, list) in cache) {
+                val t = fetchedAt[id] ?: continue
+                if (now - t > 3 * 3_600_000L) continue
+                val arr = org.json.JSONArray()
+                list.filter { it.end > now }.forEach { p ->
+                    arr.put(org.json.JSONArray().put(p.title).put(p.description ?: "").put(p.start).put(p.end))
+                }
+                root.put(id.toString(), org.json.JSONObject().put("t", t).put("p", arr))
+            }
+            f.writeText(root.toString())
+        }
     }
 
     private val clock = SimpleDateFormat("HH:mm", Locale.UK)
