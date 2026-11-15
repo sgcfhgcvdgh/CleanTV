@@ -48,10 +48,14 @@ object SportsGuide {
         // Only games on now or within six hours can be checked against the guide.
         val soon = games.filter { it.state == GameState.LIVE || (it.state == GameState.UPCOMING && it.startMs - now < 6 * Net.HOUR) }
         val guide = if (soon.isEmpty()) emptyMap() else Epg.loadAll(prefs, guideChannels(lib, soon))
+        // Broadcaster listings (TheSportsDB premium key), for every day these games are on.
+        val active = games.filter { it.state != GameState.FINISHED }
+        val listings = if (prefs.sportsDbKey.isBlank()) emptyList()
+        else SportsFeed.utcDates(active).flatMap { SportsFeed.tvListings(prefs.sportsDbKey, it) }
         val out = HashMap<String, List<GameMatcher.Candidate>>()
         for (g in games) {
             if (g.state == GameState.FINISHED) continue
-            val found = GameMatcher.find(g, pairs, guide, now)
+            val found = GameMatcher.find(g, pairs, guide, now, listings)
             out[g.id] = found
             matches[g.id] = found
         }

@@ -194,7 +194,10 @@ object GameMatcher {
         channels: List<Pair<String, String>>,
         guide: Map<String, List<Programme>> = emptyMap(),
         now: Long = System.currentTimeMillis(),
+        listings: List<TvListing> = emptyList(),
     ): List<Candidate> {
+        // Broadcasters listed for this game (TheSportsDB), UK and Ireland first.
+        val listed = TvListings.forGame(game, listings).sortedBy { if (TvListings.isUk(it)) 0 else 1 }.distinctBy { it.channel }
         val teamAliases = game.competitors.takeIf { game.headToHead }?.map { c ->
             // An alias both teams share ("manchester") can't tell them apart.
             c to aliases(c)
@@ -218,6 +221,12 @@ object GameMatcher {
             val name = normCached(rawName)
             var score = 0
             val reasons = ArrayList<String>()
+
+            // 0. A TV listing naming this channel as the broadcaster.
+            listed.firstOrNull { TvListings.sameChannel(it.channel, rawName) }?.let { l ->
+                score += if (TvListings.isUk(l)) 170 else 120
+                reasons += "Listed on ${l.channel}" + if (TvListings.isUk(l)) "" else " (${l.country})"
+            }
 
             // 1. The TV guide.
             val prog = guide[key]?.firstOrNull { it.start <= at + 20 * 60_000L && it.end > at }
@@ -253,6 +262,76 @@ object GameMatcher {
             if (score >= 20) out += Candidate(key, rawName, score, reasons.joinToString(" · "))
         }
         return out.sortedWith(compareByDescending<Candidate> { it.score }.thenBy { it.name.length })
+    }
+}
+
+/** One TV listing from TheSportsDB: which broadcaster shows an event, where and when. */
+data class TvListing(
+    val event: String,
+    val sport: String,
+    val channel: String,
+    val country: String,
+    val startMs: Long,
+)
+
+/** Turning broadcaster listings into channels in your list. */
+object TvListings {
+    private val UK = setOf("united kingdom", "uk", "england", "scotland", "wales", "northern ireland", "ireland")
+    private val QUALITY = setOf("fhd", "hd", "uhd", "sd", "4k", "hevc", "h265", "raw", "backup", "uk", "gb", "ie", "us", "usa")
+
+    fun isUk(l: TvListing) = l.country.lowercase() in UK
+
+    /**
+     * A channel name boiled down for comparing broadcasters with your list:
+     * "TNT Sports 1" and "UK: TNT Sport 1 FHD" both become "tntsport1"; "Sky Sports+" and
+     * "Sky Sports +" both become "skysport+"; "ITV1" and "ITV 1" both become "itv1".
+     */
+    fun compact(name: String): String {
+        compactCache[name]?.let { return it }
+        val c = words(name).joinToString("").let { ALIASES[it] ?: it }
+        if (compactCache.size < 100_000) compactCache[name] = c
+        return c
+    }
+
+    private val compactCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun words(name: String): List<String> = name.lowercase()
+        .replace(Regex("""^[a-z]{2,3}\s*[:|\-]\s*"""), "")
+        .replace("&", " and ")
+        .replace("+", " plus ")
+        .split(Regex("""[^a-z0-9]+"""))
+        .filter { it.isNotEmpty() && it !in QUALITY }
+        .map { if (it == "sports") "sport" else it }
+
+    /** Listing names that mean a channel called something else in IPTV lists. */
+    private val ALIASES = mapOf("itv" to "itv1", "itvx" to "itv1", "utvni" to "utv", "bbcone" to "bbc1", "bbctwo" to "bbc2")
+
+    /**
+     * Whether your channel is the listed broadcaster: the same name, or yours carries extra words
+     * ("Sky Sports NFL" -> "Sky Sports NFL/ACTION") when the listing is specific enough (3+ words)
+     * and isn't just a shorter number ("TNT Sports 1" is not "TNT Sport 10").
+     */
+    fun sameChannel(listing: String, yours: String): Boolean {
+        val l = compact(listing)
+        val y = compact(yours)
+        if (l.length < 3 || y.isEmpty()) return false
+        if (l == y) return true
+        if (y.startsWith(l) && words(listing).size >= 3) return y[l.length].isLetter()
+        return false
+    }
+
+    /** Listings for this game: same sport day and time, naming both teams (or the event). */
+    fun forGame(game: Game, listings: List<TvListing>): List<TvListing> {
+        if (game.startMs <= 0) return emptyList()
+        val teams = game.competitors.takeIf { game.headToHead }?.map { GameMatcher.aliases(it) }
+        val shared = if (teams != null) teams[0].intersect(teams[1].toSet()) else emptySet()
+        val eventWords = GameMatcher.norm(game.eventName).split(' ').filter { it.length >= 5 }
+        return listings.filter { l ->
+            if (kotlin.math.abs(l.startMs - game.startMs) > 3 * 3_600_000L) return@filter false
+            val text = " " + GameMatcher.norm(l.event) + " "
+            if (teams != null) teams.all { al -> al.any { it !in shared && text.contains(" $it ") } }
+            else eventWords.count { text.contains(" $it ") } >= 1
+        }
     }
 }
 

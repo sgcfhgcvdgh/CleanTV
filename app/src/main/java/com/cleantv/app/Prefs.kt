@@ -56,6 +56,11 @@ class Prefs(context: Context) {
         get() = (sp.getString("guardianKey", "") ?: "").ifBlank { "test" }
         set(v) = sp.edit().putString("guardianKey", v.trim()).apply()
 
+    /** TheSportsDB premium key: which UK channel shows each game. */
+    var sportsDbKey: String
+        get() = sp.getString("sportsDbKey", "") ?: ""
+        set(v) = sp.edit().putString("sportsDbKey", v.trim()).apply()
+
     /** Sport chosen last time on the Sports screen. */
     var lastSport: String
         get() = sp.getString("lastSport", "") ?: ""

@@ -145,6 +145,33 @@ object SportsFeed {
         )
     }
 
+    /**
+     * Which broadcaster shows what on a day (UTC date "yyyy-MM-dd"), from TheSportsDB's
+     * premium TV listings. Kept for an hour. Blocks.
+     */
+    fun tvListings(key: String, date: String): List<TvListing> {
+        if (key.isBlank()) return emptyList()
+        val url = "https://www.thesportsdb.com/api/v1/json/" + java.net.URLEncoder.encode(key, "UTF-8") + "/eventstv.php?d=" + date
+        val body = Net.get(url, Net.HOUR) ?: return emptyList()
+        val arr = runCatching { JSONObject(body).optJSONArray("tvevents") }.getOrNull() ?: return emptyList()
+        val fmt = utc("yyyy-MM-dd HH:mm:ss")
+        val out = ArrayList<TvListing>(arr.length())
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val start = runCatching { fmt.parse(o.optString("strTimeStamp"))!!.time }.getOrNull() ?: continue
+            val channel = o.optString("strChannel")
+            if (channel.isBlank()) continue
+            out += TvListing(o.optString("strEvent"), o.optString("strSport"), channel, o.optString("strCountry"), start)
+        }
+        return out
+    }
+
+    /** UTC dates ("yyyy-MM-dd") covering these games. */
+    fun utcDates(games: List<Game>): List<String> {
+        val fmt = utc("yyyy-MM-dd")
+        return games.filter { it.startMs > 0 }.map { fmt.format(java.util.Date(it.startMs)) }.distinct().sorted().take(4)
+    }
+
     /** "15:00", "Tomorrow 19:45", "Sat 12:30" in the TV's own time zone. */
     fun kickoff(ms: Long): String {
         if (ms <= 0) return "Time TBC"

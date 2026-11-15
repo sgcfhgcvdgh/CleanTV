@@ -148,6 +148,7 @@ object SettingsDialog {
             "Live TV categories" + if (hiddenCount > 0) ": $hiddenCount hidden" else ": showing all",
             "Start in quality: ${if (q == Quality.UHD) "UHD" else q.label}",
             "Live stream type: ${if (prefs.useHls) "HLS (.m3u8)" else "MPEG-TS (.ts)"}",
+            "Sports TV listings key" + if (prefs.sportsDbKey.isBlank()) ": not set" else ": set",
             "Critic reviews and artwork keys",
             "Clear watch history",
             "Refresh movies, shows and channels",
@@ -163,23 +164,49 @@ object SettingsDialog {
                     }
                     1 -> pickQuality(activity, prefs)
                     2 -> pickStreamType(activity, prefs)
-                    3 -> editKeys(activity, prefs, onRefresh)
-                    4 -> AlertDialog.Builder(activity)
+                    3 -> editSportsKey(activity, prefs)
+                    4 -> editKeys(activity, prefs, onRefresh)
+                    5 -> AlertDialog.Builder(activity)
                         .setTitle("Clear watch history?")
                         .setMessage("Continue Watching and your recommendations will start again from scratch.")
                         .setPositiveButton("Clear") { _, _ -> History.clear(prefs); onRefresh() }
                         .setNegativeButton("Cancel", null).show()
-                    5 -> {
+                    6 -> {
                         Library.clear(); Shows.clear(); Catalog.clear(); Net.clearProvider()
                         Toast.makeText(activity, "Refreshing…", Toast.LENGTH_SHORT).show()
                         onRefresh()
                     }
-                    6 -> {
+                    7 -> {
                         activity.startActivity(Intent(activity, LoginActivity::class.java).putExtra(LoginActivity.EXTRA_RELOGIN, true))
                         activity.finishAffinity()
                     }
                 }
             }
+            .show()
+    }
+
+    private fun editSportsKey(activity: Activity, prefs: Prefs) {
+        val pad = (20 * activity.resources.displayMetrics.density).toInt()
+        val input = EditText(activity).apply {
+            hint = "TheSportsDB premium key"
+            setText(prefs.sportsDbKey)
+            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        }
+        val box = LinearLayout(activity).apply {
+            setPadding(pad, pad / 2, pad, 0)
+            addView(input, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        }
+        AlertDialog.Builder(activity)
+            .setTitle("Sports TV listings")
+            .setMessage("With a TheSportsDB premium key, Sports knows which UK channel shows each game, days ahead.")
+            .setView(box)
+            .setPositiveButton("Save") { _, _ ->
+                prefs.sportsDbKey = input.text.toString()
+                SportsGuide.matches.clear()
+                Toast.makeText(activity, if (prefs.sportsDbKey.isBlank()) "Key removed" else "Saved – open Sports to use it", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
             .show()
     }
 

@@ -127,4 +127,36 @@ class GameMatcherTest {
         assertEquals("main", found.first().key)
         assertTrue(found.first().score >= 150)
     }
+
+    // ---- TV listings (TheSportsDB) ----
+
+    @Test
+    fun listingNamesMatchYourChannels() {
+        assertTrue(TvListings.sameChannel("TNT Sports 1", "TNT Sport 1"))
+        assertTrue(TvListings.sameChannel("Sky Sports+", "Sky Sports +"))
+        assertTrue(TvListings.sameChannel("Sky Sports NFL", "Sky Sports NFL/ACTION"))
+        assertTrue(TvListings.sameChannel("Premier Sports 1 IE", "Premier Sports 1"))
+        assertTrue(TvListings.sameChannel("LaLiga TV UK", "LaLigaTV"))
+        assertTrue(TvListings.sameChannel("ITV1", "UK: ITV 1 FHD"))
+        assertTrue(!TvListings.sameChannel("TNT Sports 1", "TNT Sport 10"))
+        assertTrue(!TvListings.sameChannel("Sky Sports UHD", "Sky Sports Mix"))
+    }
+
+    @Test
+    fun listingPicksTheBroadcaster() {
+        val start = at(11, 22, 16)
+        val game = gameOn(start, "Liverpool", "Manchester United")
+        val listings = listOf(
+            TvListing("Liverpool vs Manchester United", "Soccer", "Sky Sports Premier League", "United Kingdom", start + 30 * 60_000L),
+            TvListing("Hull City vs Brighton and Hove Albion", "Soccer", "Sky Sports Main Event", "United Kingdom", start),
+        )
+        val found = GameMatcher.find(
+            game,
+            listOf("pl" to "Sky Sports Premier League", "me" to "Sky Sports Main Event", "lfc" to "LFC TV"),
+            now = at(11, 20, 12), listings = listings,
+        )
+        assertEquals("pl", found.first().key)
+        assertTrue(found.first().score >= 170)
+        assertTrue(found.none { it.key == "me" && it.score >= 100 })
+    }
 }
