@@ -88,7 +88,8 @@ object Playback {
                 Toast.makeText(activity, "Couldn't load your channels", Toast.LENGTH_LONG).show()
                 return@withChannels
             }
-            val found = GameMatcher.find(game, lib.channels.map { it.key to it.name })
+            val pool = Library.visible(Prefs(activity)).ifEmpty { lib.channels }
+            val found = GameMatcher.find(game, pool.map { it.key to it.name })
             val keys = found.map { it.key }
             val best = found.firstOrNull()
             when {
@@ -155,7 +156,7 @@ object SettingsDialog {
                         .setPositiveButton("Clear") { _, _ -> History.clear(prefs); onRefresh() }
                         .setNegativeButton("Cancel", null).show()
                     5 -> {
-                        Library.clear(); Shows.clear(); Catalog.clear()
+                        Library.clear(); Shows.clear(); Catalog.clear(); Net.clearProvider()
                         Toast.makeText(activity, "Refreshing…", Toast.LENGTH_SHORT).show()
                         onRefresh()
                     }

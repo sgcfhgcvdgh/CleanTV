@@ -61,6 +61,11 @@ class Prefs(context: Context) {
         get() = sp.getString("lastSport", "") ?: ""
         set(v) = sp.edit().putString("lastSport", v).apply()
 
+    /** Live picture: 0 = fit, 1 = zoom to fill, 2 = stretch. */
+    var aspect: Int
+        get() = sp.getInt("aspect", 0)
+        set(v) = sp.edit().putInt("aspect", v).apply()
+
     /** Live TV categories you've hidden (their merged category keys). */
     var hiddenLiveCategories: Set<String>
         get() = sp.getStringSet("hiddenLiveCats", emptySet())?.toSet() ?: emptySet()

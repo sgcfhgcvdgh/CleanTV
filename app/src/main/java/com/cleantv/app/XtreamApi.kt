@@ -94,7 +94,8 @@ class XtreamApi(serverInput: String, private val username: String, private val p
     }
 
     private fun getArray(action: String): JSONArray {
-        val body = get(apiUrl(action)).trim()
+        val url = apiUrl(action)
+        val body = Net.provider(url, 12 * Net.HOUR) { get(url) }.trim()
         return if (body.startsWith("[")) JSONArray(body) else JSONArray()
     }
 
@@ -309,7 +310,13 @@ object Library {
         data = null
     }
 
-    fun load(api: XtreamApi): GroupedLibrary {
+    private val loadLock = Any()
+
+    /** One load at a time: a second caller waits for the first and gets its result. */
+    fun load(api: XtreamApi): GroupedLibrary = synchronized(loadLock) { loadLocked(api) }
+
+    private fun loadLocked(api: XtreamApi): GroupedLibrary {
+        data?.let { return it }
         val cats = api.categories()
         val streams = api.streams()
         if (streams.isEmpty()) throw ApiException("Your account has no live channels")

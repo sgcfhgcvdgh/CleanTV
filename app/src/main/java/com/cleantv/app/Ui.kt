@@ -36,7 +36,6 @@ object Motion {
         v.animate().cancel()
         v.animate()
             .scaleX(if (focused) scale else 1f).scaleY(if (focused) scale else 1f)
-            .translationZ(if (focused) dp(v.context, 10f) else 0f)
             .setDuration(if (focused) 240 else 180)
             .setInterpolator(settle)
             .start()
@@ -87,9 +86,13 @@ class KeylineLayoutManager(context: Context, orientation: Int) : LinearLayoutMan
 
     // Look further ahead so the next cards are already laid out when you press right.
     override fun calculateExtraLayoutSpace(state: RecyclerView.State, extraLayoutSpace: IntArray) {
-        val extra = if (orientation == HORIZONTAL) width else height
-        extraLayoutSpace[0] = extra / 2
-        extraLayoutSpace[1] = extra
+        if (orientation == HORIZONTAL) {
+            extraLayoutSpace[0] = width / 4
+            extraLayoutSpace[1] = width / 2
+        } else {
+            extraLayoutSpace[0] = 0
+            extraLayoutSpace[1] = height / 3
+        }
     }
 }
 
@@ -142,6 +145,7 @@ class CardAdapter(private val host: CardHost, private val style: RowStyle) : Rec
     override fun getItemId(position: Int): Long = items[position].id.hashCode().toLong()
 
     fun submit(list: List<Card>) {
+        if (list == items) return
         items = list
         notifyDataSetChanged()
     }
@@ -315,7 +319,7 @@ object Rows {
                 focusedPos < 0 -> idle
                 child === focusedRow -> 1f
                 pos in 0 until focusedPos -> 0f
-                else -> 0.5f
+                else -> 1f
             }
             if (child.alpha != target) child.animate().alpha(target).setDuration(220).start()
         }
@@ -416,7 +420,7 @@ class RowsAdapter(private val host: CardHost) : RecyclerView.Adapter<RowsAdapter
         h.title.text = row.title
         // A recycled row may still be faded out from higher up the page.
         h.itemView.animate().cancel()
-        h.itemView.alpha = 0.5f
+        h.itemView.alpha = 1f
         (h.list.adapter as CardAdapter).submit(row.cards)
         val saved = scrollState[row.id]
         if (saved != null) h.list.layoutManager?.onRestoreInstanceState(saved) else h.list.scrollToPosition(0)

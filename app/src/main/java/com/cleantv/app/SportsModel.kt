@@ -142,6 +142,11 @@ object GameMatcher {
         "west bromwich albion" to listOf("west brom"),
     )
 
+    /** Channel names normalised once, not once per game (thousands of channels x dozens of games). */
+    private val normCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun normCached(s: String): String = normCache[s] ?: norm(s).also { if (normCache.size < 100_000) normCache[s] = it }
+
     fun norm(s: String): String =
         s.lowercase().replace('&', ' ').map { if (it.isLetterOrDigit()) it else ' ' }.joinToString("")
             .split(' ').filter { it.isNotEmpty() }.joinToString(" ")
@@ -178,7 +183,7 @@ object GameMatcher {
 
         val out = ArrayList<Candidate>()
         for ((key, rawName) in channels) {
-            val name = norm(rawName)
+            val name = normCached(rawName)
             var score = 0
             val reasons = ArrayList<String>()
             val hitTeams = teamAliases.filter { (_, al) -> al.any { it !in shared && containsWords(name, it) } }

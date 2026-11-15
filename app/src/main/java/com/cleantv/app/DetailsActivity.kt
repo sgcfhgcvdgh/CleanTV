@@ -6,7 +6,6 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
-import android.view.animation.LinearInterpolator
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -221,9 +220,7 @@ class DetailsActivity : AppCompatActivity(), CardHost {
                     listener(onSuccess = { _, _ ->
                         backdrop.scaleX = 1.04f; backdrop.scaleY = 1.04f
                         backdrop.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(900).setInterpolator(Motion.settle)
-                            .withEndAction {
-                                backdrop.animate().scaleX(1.07f).scaleY(1.07f).setDuration(20_000).setInterpolator(LinearInterpolator()).start()
-                            }.start()
+                            .withLayer().start()
                     })
                 }
                 if (plot.text.isNullOrBlank()) plot.text = provider?.plot ?: tmdb?.overview ?: ""

@@ -9,7 +9,6 @@ import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.view.animation.LinearInterpolator
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -120,6 +119,7 @@ class MainActivity : AppCompatActivity(), CardHost {
         }
 
         buildRail()
+        CrashReport.showIfAny(this)
         root.viewTreeObserver.addOnGlobalFocusChangeListener { _, now -> onFocusMoved(now) }
 
         val needsLoad = !Catalog.moviesLoaded && !Catalog.showsLoaded
@@ -127,10 +127,17 @@ class MainActivity : AppCompatActivity(), CardHost {
         load()
     }
 
+    private var seenState = ""
+
+    /** What the rows depend on besides the library: history and My List. */
+    private fun rowState() = prefs.historyJson.hashCode().toString() + "|" + prefs.myList.hashCode()
+
     override fun onResume() {
         super.onResume()
-        // Coming back from a film or episode: Continue Watching and picks may have changed.
-        if (!firstRender && !loading) render(keepFocus = true)
+        // Coming back from a film or episode: rebuild only if Continue Watching or My List changed.
+        val state = rowState()
+        if (!firstRender && !loading && state != seenState) render(keepFocus = true)
+        seenState = state
     }
 
     override fun onDestroy() {
@@ -279,7 +286,16 @@ class MainActivity : AppCompatActivity(), CardHost {
         var movieError: Throwable? = null
         var showError: Throwable? = null
         fun done() {
-            if (remaining.decrementAndGet() > 0) return
+            if (remaining.decrementAndGet() > 0) {
+                // The first half (films or series) is in: show Home now, the rest slots in after.
+                Bg.ui {
+                    if (!isFinishing && firstRender && (Catalog.movies.isNotEmpty() || Catalog.shows.isNotEmpty())) {
+                        status.visibility = View.GONE
+                        render(keepFocus = false)
+                    }
+                }
+                return
+            }
             Bg.ui {
                 loading = false
                 if (isFinishing || isDestroyed) return@ui
@@ -301,9 +317,10 @@ class MainActivity : AppCompatActivity(), CardHost {
                     return@ui
                 }
                 status.visibility = View.GONE
-                render(keepFocus = false)
+                render(keepFocus = !firstRender)
                 loadLiveSports()
-                loadChannelsQuietly()
+                // Channels are big: fetch them once Home has settled, so browsing stays smooth.
+                handler.postDelayed({ if (!isFinishing) loadChannelsQuietly() }, 6_000)
             }
         }
         Bg.run {
@@ -336,7 +353,7 @@ class MainActivity : AppCompatActivity(), CardHost {
         Bg.run {
             val games = leagues.flatMap { l -> runCatching { SportsFeed.games(l) }.getOrDefault(emptyList()) }
                 .filter { it.state == GameState.LIVE }
-            val channels = Library.data?.channels?.map { it.key to it.name }
+            val channels = Library.data?.let { Library.visible(prefs) }?.map { it.key to it.name }
             val cards = games.map { g ->
                 val best = channels?.let { GameMatcher.find(g, it).firstOrNull()?.score } ?: 0
                 Card.GameCard(g, best >= 50)
@@ -637,10 +654,9 @@ class MainActivity : AppCompatActivity(), CardHost {
                 back.animate().cancel()
                 back.alpha = 0f
                 back.scaleX = 1f; back.scaleY = 1f
-                back.animate().alpha(1f).setDuration(650).setInterpolator(Motion.settle).withEndAction {
-                    // Slow drift, like a camera move.
-                    back.animate().scaleX(1.08f).scaleY(1.08f).setDuration(18_000).setInterpolator(LinearInterpolator()).start()
-                }.start()
+                // A short settle as it fades in; nothing keeps animating afterwards.
+                back.scaleX = 1.03f; back.scaleY = 1.03f
+                back.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(650).setInterpolator(Motion.settle).withLayer().start()
                 old.animate().alpha(0f).setDuration(650).start()
             })
         }

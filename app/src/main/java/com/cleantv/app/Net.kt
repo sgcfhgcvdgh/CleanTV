@@ -64,6 +64,29 @@ object Net {
         return file?.takeIf { it.exists() }?.let { runCatching { it.readText() }.getOrNull() }
     }
 
+    /**
+     * Your provider's big lists (films, series, channels), kept on the TV for [ttlMs] so the app
+     * starts without downloading them again. If the provider can't be reached, an older copy is used.
+     */
+    fun provider(key: String, ttlMs: Long, fetch: () -> String): String {
+        val file = cacheDir?.let { File(it, "p_" + hash(key)) }
+        if (file != null && file.exists() && System.currentTimeMillis() - file.lastModified() < ttlMs) {
+            runCatching { return file.readText() }
+        }
+        return try {
+            val body = fetch()
+            if (file != null && body.length > 2) runCatching { file.writeText(body) }
+            body
+        } catch (e: Exception) {
+            file?.takeIf { it.exists() }?.let { f -> runCatching { f.readText() }.getOrNull() } ?: throw e
+        }
+    }
+
+    /** Forget the provider lists (Settings → Refresh, or a different account). */
+    fun clearProvider() {
+        cacheDir?.listFiles()?.filter { it.name.startsWith("p_") }?.forEach { it.delete() }
+    }
+
     const val MINUTE = 60_000L
     const val HOUR = 60 * MINUTE
     const val DAY = 24 * HOUR

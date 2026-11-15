@@ -7,12 +7,21 @@
     <androidx.media3.ui.PlayerView
         android:id="@+id/playerView"
         android:layout_width="match_parent" android:layout_height="match_parent"
+        app:keep_content_on_player_reset="true"
         app:resize_mode="fit" app:show_buffering="never" app:use_controller="false" />
 
     <ProgressBar
         android:id="@+id/loading"
-        android:layout_width="64dp" android:layout_height="64dp"
+        android:layout_width="56dp" android:layout_height="56dp"
         android:layout_gravity="center" android:indeterminateTint="@color/accent" />
+
+    <TextView
+        android:id="@+id/toast"
+        android:layout_width="wrap_content" android:layout_height="wrap_content"
+        android:layout_gravity="top|end" android:layout_margin="28dp"
+        android:alpha="0" android:background="@drawable/bg_overlay"
+        android:paddingStart="16dp" android:paddingTop="10dp" android:paddingEnd="16dp" android:paddingBottom="10dp"
+        android:textColor="@color/text" android:textSize="15sp" />
 
     <TextView
         android:id="@+id/errorText"
@@ -21,28 +30,106 @@
         android:gravity="center" android:padding="24dp"
         android:textColor="@color/text" android:textSize="18sp" android:visibility="gone" />
 
+    <!-- Info bar: channel, quality, what's on now and next. -->
     <LinearLayout
         android:id="@+id/overlay"
-        android:layout_width="wrap_content" android:layout_height="wrap_content"
-        android:layout_gravity="top|start" android:layout_margin="32dp"
-        android:background="@drawable/bg_overlay" android:orientation="vertical"
-        android:paddingStart="22dp" android:paddingTop="14dp"
-        android:paddingEnd="22dp" android:paddingBottom="14dp">
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_gravity="bottom" android:background="@drawable/scrim_bottom"
+        android:orientation="vertical"
+        android:paddingStart="48dp" android:paddingTop="70dp" android:paddingEnd="48dp" android:paddingBottom="28dp">
+
+        <LinearLayout
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:gravity="center_vertical" android:orientation="horizontal">
+
+            <ImageView
+                android:id="@+id/overlayLogo"
+                android:layout_width="72dp" android:layout_height="44dp"
+                android:layout_marginEnd="16dp" android:importantForAccessibility="no"
+                android:scaleType="fitCenter" />
+
+            <LinearLayout
+                android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/overlayName"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:ellipsize="end" android:fontFamily="sans-serif-black" android:singleLine="true"
+                    android:textColor="@color/text" android:textSize="24sp" />
+
+                <TextView
+                    android:id="@+id/overlayQuality"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:ellipsize="end" android:fontFamily="sans-serif-medium" android:singleLine="true"
+                    android:textColor="@color/accent" android:textSize="13sp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/overlayPos"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:textColor="@color/muted" android:textSize="14sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="12dp" android:gravity="center_vertical" android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/nowTime"
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:layout_marginEnd="12dp" android:textColor="@color/muted" android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/nowTitle"
+                android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:ellipsize="end" android:fontFamily="sans-serif-medium" android:singleLine="true"
+                android:textColor="@color/text" android:textSize="17sp" />
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/nowProgress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent" android:layout_height="3dp"
+            android:layout_marginTop="8dp" android:max="1000"
+            android:progressDrawable="@drawable/progress_card" />
 
         <TextView
-            android:id="@+id/overlayName"
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:textColor="@color/text" android:textSize="24sp" android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/overlayQuality"
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:layout_marginTop="2dp" android:textColor="@color/accent" android:textSize="16sp" />
-
-        <TextView
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="OK: quality    ▲ ▼: channel    Back: channel list"
+            android:id="@+id/nowDesc"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:ellipsize="end" android:maxLines="2"
             android:textColor="@color/muted" android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/next"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="6dp" android:ellipsize="end" android:singleLine="true"
+            android:textColor="@color/faint" android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="OK: options    ◀: channel list    ▲ ▼: change channel    ▶: info"
+            android:textColor="@color/faint" android:textSize="12sp" />
+    </LinearLayout>
+
+    <!-- Channel list with guide, slides in from the left. -->
+    <LinearLayout
+        android:id="@+id/listPanel"
+        android:layout_width="600dp" android:layout_height="match_parent"
+        android:background="@drawable/bg_rail_open" android:orientation="vertical"
+        android:paddingStart="28dp" android:paddingTop="24dp" android:paddingEnd="40dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/listTitle"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp" android:fontFamily="sans-serif-black"
+            android:textColor="@color/text" android:textSize="20sp" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/channelList"
+            android:layout_width="match_parent" android:layout_height="match_parent"
+            android:clipToPadding="false" android:paddingBottom="24dp" />
     </LinearLayout>
 </FrameLayout>

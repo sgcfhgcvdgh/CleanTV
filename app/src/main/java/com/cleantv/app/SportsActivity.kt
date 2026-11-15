@@ -140,14 +140,17 @@ class SportsActivity : AppCompatActivity(), CardHost {
         s.leagues.forEachIndexed { i, league ->
             Bg.run {
                 results[i] = runCatching { SportsFeed.games(league) }.getOrDefault(emptyList())
-                if (left.decrementAndGet() == 0) Bg.ui { if (gen == generation) show(s, results.map { it ?: emptyList() }, quiet) }
+                if (left.decrementAndGet() == 0) {
+                    // Matching games to channels is heavy: do it here, off the screen's thread.
+                    val built = buildRows(s, results.map { it ?: emptyList() })
+                    Bg.ui { if (gen == generation) show(s, built.first, built.second, quiet) }
+                }
             }
         }
     }
 
-    private fun show(s: Sport, perLeague: List<List<Game>>, quiet: Boolean) {
-        if (isFinishing) return
-        val channels = Library.data?.channels?.map { it.key to it.name }
+    private fun buildRows(s: Sport, perLeague: List<List<Game>>): Pair<List<Row>, Int> {
+        val channels = Library.data?.let { Library.visible(prefs) }?.map { it.key to it.name }
         fun card(g: Game): Card.GameCard {
             val best = channels?.let { GameMatcher.find(g, it).firstOrNull()?.score } ?: 0
             return Card.GameCard(g, best >= 50)
@@ -162,9 +165,13 @@ class SportsActivity : AppCompatActivity(), CardHost {
         }
         val finished = all.filter { it.state == GameState.FINISHED }.sortedByDescending { it.startMs }.take(30)
         if (finished.isNotEmpty()) rows += Row("results", "Results", finished.map { card(it) }, RowStyle.GAME)
+        return rows to live.size
+    }
 
+    private fun show(s: Sport, rows: List<Row>, liveCount: Int, quiet: Boolean) {
+        if (isFinishing || isDestroyed) return
         updated.text = "Updated " + SimpleDateFormat("HH:mm", Locale.UK).format(Date()) +
-            "  ·  scores refresh every minute" + if (live.isNotEmpty()) "  ·  ${live.size} live" else ""
+            "  ·  scores refresh every minute" + if (liveCount > 0) "  ·  $liveCount live" else ""
 
         val sameShape = rowsAdapter.rows.map { it.id to it.cards.size } == rows.map { it.id to it.cards.size }
         if (quiet && sameShape) {
