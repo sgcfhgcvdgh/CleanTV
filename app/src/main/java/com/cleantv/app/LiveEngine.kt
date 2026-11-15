@@ -49,8 +49,13 @@ interface LiveEngine {
 
     val name: String
     fun start()
-    fun play(url: String, hls: Boolean)
+    /** [live]: an IPTV channel (TS or HLS); otherwise a film or episode file, started at [startMs]. */
+    fun play(url: String, hls: Boolean, live: Boolean = true, startMs: Long = 0L)
     fun pauseOutput()
+    fun durationMs(): Long
+    fun seekTo(ms: Long)
+    fun setPaused(paused: Boolean)
+    val isPaused: Boolean
     fun release()
     val isReady: Boolean
     val isBuffering: Boolean
@@ -131,12 +136,16 @@ class VlcEngine(context: Context, private val layout: VLCVideoLayout, private va
         layout.visibility = View.VISIBLE
     }
 
-    override fun play(url: String, hls: Boolean) {
+    private var paused = false
+
+    override fun play(url: String, hls: Boolean, live: Boolean, startMs: Long) {
         ready = false
         buffering = true
+        paused = false
         val m = Media(libVlc, Uri.parse(url))
         m.setHWDecoderEnabled(true, false)
         m.addOption(":network-caching=3000")
+        if (startMs > 0) m.addOption(":start-time=" + (startMs / 1000))
         m.addOption(":http-user-agent=" + XtreamApi.USER_AGENT)
         player.media = m
         media?.release()
@@ -166,6 +175,19 @@ class VlcEngine(context: Context, private val layout: VLCVideoLayout, private va
 
     override val isReady get() = ready && !buffering
     override val isBuffering get() = buffering
+    override val isPaused get() = paused
+
+    override fun durationMs(): Long = player.length.coerceAtLeast(0L)
+
+    override fun seekTo(ms: Long) {
+        player.setTime(ms.coerceAtLeast(0L))
+    }
+
+    override fun setPaused(paused: Boolean) {
+        if (paused == this.paused) return
+        this.paused = paused
+        if (paused) { if (player.isPlaying) player.pause() } else player.play()
+    }
 
     override fun framesShown(): Int = runCatching { media?.stats?.displayedPictures }.getOrNull() ?: -1
     override fun positionMs(): Long = player.time
@@ -274,15 +296,20 @@ class ExoEngine(context: Context, private val view: PlayerView, private val list
         view.visibility = View.VISIBLE
     }
 
-    override fun play(url: String, hls: Boolean) {
-        val item = MediaItem.Builder()
-            .setUri(url)
-            .setMimeType(if (hls) MimeTypes.APPLICATION_M3U8 else MimeTypes.VIDEO_MP2T)
-            .build()
-        player.setMediaItem(item)
+    override fun play(url: String, hls: Boolean, live: Boolean, startMs: Long) {
+        val b = MediaItem.Builder().setUri(url)
+        if (live) b.setMimeType(if (hls) MimeTypes.APPLICATION_M3U8 else MimeTypes.VIDEO_MP2T)
+        if (startMs > 0) player.setMediaItem(b.build(), startMs) else player.setMediaItem(b.build())
         player.prepare()
         player.play()
     }
+
+    override fun durationMs(): Long = player.duration.takeIf { it > 0 } ?: 0L
+    override fun seekTo(ms: Long) = player.seekTo(ms.coerceAtLeast(0L))
+    override fun setPaused(paused: Boolean) {
+        player.playWhenReady = !paused
+    }
+    override val isPaused get() = !player.playWhenReady
 
     override fun pauseOutput() = player.stop()
 

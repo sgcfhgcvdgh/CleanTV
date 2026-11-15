@@ -70,10 +70,10 @@ class MainActivity : AppCompatActivity(), CardHost {
     private val nav = listOf(
         NavItem("search", "Search", R.drawable.ic_search),
         NavItem("home", "Home", R.drawable.ic_home),
+        NavItem("live", "Live TV", R.drawable.ic_live),
         NavItem("movies", "Movies", R.drawable.ic_movie),
         NavItem("shows", "TV Shows", R.drawable.ic_shows),
         NavItem("sports", "Sports", R.drawable.ic_trophy),
-        NavItem("live", "Live TV", R.drawable.ic_live),
         NavItem("mylist", "My List", R.drawable.ic_list),
         NavItem("settings", "Settings", R.drawable.ic_tune),
     )
