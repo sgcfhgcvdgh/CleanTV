@@ -22,6 +22,13 @@ class CategoryAdapter(
     var selectedKey: String? = null
         private set
 
+    init {
+        // Stable ids keep focus on the same category when the list is refreshed.
+        setHasStableIds(true)
+    }
+
+    override fun getItemId(position: Int): Long = items[position].key.hashCode().toLong()
+
     fun submit(list: List<CatItem>, selected: String?) {
         items = list
         selectedKey = selected
@@ -103,9 +110,26 @@ class ChannelListAdapter(
         notifyDataSetChanged()
     }
 
-    fun refresh(key: String) {
+    fun refresh(key: String?) {
         val i = items.indexOfFirst { it.key == key }
         if (i >= 0) notifyItemChanged(i)
+    }
+
+    /** The channel picked up for moving (drawn with an ember border and move hint). */
+    var pickedKey: String? = null
+        set(v) { val old = field; field = v; refresh(old); refresh(v) }
+
+    /** The channel playing in the preview (its name shown in the accent colour). */
+    var playingKey: String? = null
+        set(v) { val old = field; field = v; refresh(old); refresh(v) }
+
+    /** Moves one channel a place up or down; the row keeps its focus as it moves. */
+    fun move(from: Int, to: Int) {
+        if (from !in items.indices || to !in items.indices) return
+        val list = items.toMutableList()
+        list.add(to, list.removeAt(from))
+        items = list
+        notifyItemMoved(from, to)
     }
 
     /** Moves the progress bars and rolls over to the next programme. */
@@ -120,6 +144,8 @@ class ChannelListAdapter(
         val nowTitle: TextView = v.findViewById(R.id.nowTitle)
         val nowProgress: ProgressBar = v.findViewById(R.id.nowProgress)
         val next: TextView = v.findViewById(R.id.next)
+        val moveHint: TextView = v.findViewById(R.id.moveHint)
+        val guideBox: View = v.findViewById(R.id.guideBox)
         var key: String? = null
     }
 
@@ -136,6 +162,13 @@ class ChannelListAdapter(
         val g = items[position]
         holder.key = g.key
         holder.name.text = g.name
+        val picked = g.key == pickedKey
+        holder.itemView.setBackgroundResource(if (picked) R.drawable.bg_tile_picked else R.drawable.bg_tile)
+        holder.moveHint.visibility = if (picked) View.VISIBLE else View.GONE
+        holder.guideBox.visibility = if (picked) View.GONE else View.VISIBLE
+        holder.itemView.scaleX = if (picked) 1.03f else 1f
+        holder.itemView.scaleY = holder.itemView.scaleX
+        holder.name.setTextColor(ContextCompat.getColor(holder.itemView.context, if (g.key == playingKey) R.color.accent else R.color.text))
         holder.badges.text = g.badges
         holder.fav.visibility = if (prefs.favourites.contains(g.key)) View.VISIBLE else View.GONE
         if (g.icon != null) {
@@ -150,7 +183,7 @@ class ChannelListAdapter(
         holder.itemView.setOnClickListener { onClick(g) }
         holder.itemView.setOnLongClickListener { onLongClick(g); true }
         holder.itemView.setOnFocusChangeListener { v, hasFocus ->
-            val s = if (hasFocus) 1.02f else 1f
+            val s = if (g.key == pickedKey) 1.03f else if (hasFocus) 1.02f else 1f
             v.animate().scaleX(s).scaleY(s).setDuration(160).setInterpolator(Motion.settle).start()
             if (hasFocus) onFocus(g)
         }

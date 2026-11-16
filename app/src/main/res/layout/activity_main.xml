@@ -35,10 +35,13 @@
 
         <LinearLayout
             android:id="@+id/hero"
-            android:layout_width="match_parent" android:layout_height="282dp"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
             android:clipChildren="false" android:clipToPadding="false"
-            android:gravity="bottom" android:orientation="vertical"
-            android:paddingStart="@dimen/keyline" android:paddingEnd="400dp" android:paddingBottom="14dp">
+            android:orientation="vertical"
+            android:paddingStart="@dimen/keyline" android:paddingTop="34dp"
+            android:paddingEnd="360dp" android:paddingBottom="10dp">
+            <!-- Every line has a fixed height, so the banner is always the same size and the rows
+                 below never move or slide under it, whatever the title or screen. -->
 
             <TextView
                 android:id="@+id/heroKicker"
@@ -49,7 +52,7 @@
             <TextView
                 android:id="@+id/heroTitle"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="4dp" android:ellipsize="end" android:maxLines="2"
+                android:layout_marginTop="4dp" android:ellipsize="end" android:singleLine="true"
                 android:fontFamily="sans-serif-black" android:lineSpacingMultiplier="0.92"
                 android:textColor="@color/text" android:textSize="38sp" />
 
@@ -73,13 +76,13 @@
 
             <LinearLayout
                 android:id="@+id/heroScores"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_width="match_parent" android:layout_height="24dp"
                 android:layout_marginTop="8dp" android:orientation="horizontal" />
 
             <TextView
                 android:id="@+id/heroPlot"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:layout_marginTop="8dp" android:ellipsize="end" android:maxLines="3"
+                android:layout_marginTop="8dp" android:ellipsize="end" android:lines="3"
                 android:lineSpacingMultiplier="1.15" android:textColor="#D9F5F5F1" android:textSize="14sp" />
 
             <LinearLayout
@@ -104,7 +107,7 @@
             android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
             android:clipChildren="true" android:clipToPadding="false"
             android:descendantFocusability="afterDescendants"
-            android:paddingTop="6dp" android:paddingBottom="320dp" />
+            android:paddingTop="14dp" android:paddingBottom="320dp" />
     </LinearLayout>
 
     <TextView

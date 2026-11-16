@@ -62,6 +62,18 @@ object SportsGuide {
         return out
     }
 
+    /**
+     * A look-up using only what's already on the TV (no downloads): the loaded channel list,
+     * guides fetched earlier and saved TV listings. Takes a moment, not seconds.
+     */
+    fun quickMatch(prefs: Prefs, game: Game): List<GameMatcher.Candidate>? {
+        val lib = Library.data ?: return null
+        val guide = Epg.cachedOnly(guideChannels(lib, listOf(game)))
+        val listings = if (prefs.sportsDbKey.isBlank()) emptyList()
+        else SportsFeed.utcDates(listOf(game)).flatMap { SportsFeed.tvListings(prefs.sportsDbKey, it, offline = true) }
+        return GameMatcher.find(game, lib.channels.map { it.key to it.name }, guide, System.currentTimeMillis(), listings)
+    }
+
     /** Whether a game is confidently on one of your channels. */
     fun watchable(found: List<GameMatcher.Candidate>?): Boolean = (found?.firstOrNull()?.score ?: 0) >= 100
 }

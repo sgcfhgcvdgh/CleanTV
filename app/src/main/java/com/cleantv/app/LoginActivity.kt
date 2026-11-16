@@ -52,6 +52,7 @@ class LoginActivity : AppCompatActivity() {
                         Shows.clear()
                         Catalog.clear()
                         Net.clearProvider()
+                        ChannelCache.clear()
                         startActivity(Intent(this, MainActivity::class.java))
                         finish()
                     }.onFailure {

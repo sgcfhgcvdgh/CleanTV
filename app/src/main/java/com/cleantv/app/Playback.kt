@@ -83,23 +83,52 @@ object Playback {
             Toast.makeText(activity, "${game.title} has finished", Toast.LENGTH_SHORT).show()
             return
         }
-        // Use the look-up the Sports screen already did; otherwise check the guide and names now.
+        if (lookingUp) return // one look-up at a time; a second press doesn't start another
+        // 1. The look-up the Sports screen already did.
         val known = SportsGuide.matches[game.id]
-        if (known != null && Library.data != null) {
+        if (known != null && known.isNotEmpty() && Library.data != null) {
             showMatches(activity, game, known)
             return
         }
-        Toast.makeText(activity, "Finding ${game.title}…", Toast.LENGTH_SHORT).show()
         val prefs = Prefs(activity)
+        lookingUp = true
+        // A visible "finding" box with Cancel, so it's clear the press worked.
+        var cancelled = false
+        val pad = (24 * activity.resources.displayMetrics.density).toInt()
+        val box = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(pad, pad, pad, pad / 2)
+            addView(android.widget.ProgressBar(activity))
+            addView(android.widget.TextView(activity).apply {
+                text = "Finding the channel showing ${game.title}…"
+                setPadding(pad, 0, 0, 0)
+                textSize = 16f
+            })
+        }
+        val waiting = AlertDialog.Builder(activity)
+            .setView(box)
+            .setNegativeButton("Cancel") { _, _ -> cancelled = true; lookingUp = false }
+            .setOnCancelListener { cancelled = true; lookingUp = false }
+            .create()
         Bg.run {
-            val found = SportsGuide.matchAll(prefs, listOf(game))[game.id]
+            // 2. What's already on the TV (instant). 3. A full look-up (guide, listings, fresh names).
+            val quick = runCatching { SportsGuide.quickMatch(prefs, game) }.getOrNull()
+            val confident = (quick?.firstOrNull()?.score ?: 0) >= 100
+            if (!confident) Bg.ui { if (!cancelled && !activity.isFinishing) waiting.show() }
+            val found = if (confident) quick else runCatching { SportsGuide.matchAll(prefs, listOf(game))[game.id] }.getOrNull() ?: quick
             Bg.ui {
-                if (activity.isFinishing) return@ui
+                lookingUp = false
+                if (waiting.isShowing) waiting.dismiss()
+                if (cancelled || activity.isFinishing) return@ui
                 if (Library.data == null) Toast.makeText(activity, "Couldn't load your channels", Toast.LENGTH_LONG).show()
                 else showMatches(activity, game, found ?: emptyList())
             }
         }
     }
+
+    @Volatile
+    private var lookingUp = false
 
     /** One confident match plays straight away; otherwise a short list of the likeliest channels. */
     private fun showMatches(activity: Activity, game: Game, found: List<GameMatcher.Candidate>) {
@@ -172,7 +201,7 @@ object SettingsDialog {
                         .setPositiveButton("Clear") { _, _ -> History.clear(prefs); onRefresh() }
                         .setNegativeButton("Cancel", null).show()
                     6 -> {
-                        Library.clear(); Shows.clear(); Catalog.clear(); Net.clearProvider()
+                        Library.clear(); Shows.clear(); Catalog.clear(); Net.clearProvider(); ChannelCache.clear()
                         Toast.makeText(activity, "Refreshing…", Toast.LENGTH_SHORT).show()
                         onRefresh()
                     }

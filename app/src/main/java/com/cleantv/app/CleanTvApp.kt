@@ -11,6 +11,7 @@ class CleanTvApp : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         Net.init(this)
+        ChannelCache.init(this)
         // If the app ever crashes, keep what happened so it can be shown on the next start.
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, e ->

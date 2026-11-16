@@ -49,6 +49,38 @@ object Catalog {
 
     val all: List<Title> get() = movies + shows
 
+    /** Lists sorted once when the library loads, so building rows doesn't scan everything each time. */
+    class Index(
+        val byCategory: Map<String, List<Title>>,
+        val newestMovies: List<Title>, val newestShows: List<Title>,
+        val topMovies: List<Title>, val topShows: List<Title>,
+        /** Genre -> titles, best rated first. */
+        val byGenre: Map<String, List<Title>>,
+        /** Bumped on every reload, so cached rows know they're out of date. */
+        val version: Int,
+    )
+
+    @Volatile var index = Index(emptyMap(), emptyList(), emptyList(), emptyList(), emptyList(), emptyMap(), 0); private set
+
+    private fun reindex() {
+        fun newest(list: List<Title>) = list.filter { it.added > 0 }.sortedByDescending { it.added }.take(40)
+            .ifEmpty { list.sortedBy { it.order }.take(40) }
+        fun top(list: List<Title>) = list.filter { (it.rating ?: 0.0) >= 7.3 }.sortedByDescending { it.rating }.take(40)
+        val byCat = HashMap<String, MutableList<Title>>()
+        val byGenre = HashMap<String, MutableList<Title>>()
+        for (t in movies + shows) {
+            for (c in t.categoryKeys) byCat.getOrPut((if (t.kind == Kind.MOVIE) "m|" else "s|") + c) { ArrayList() } += t
+            for (g in t.genres) byGenre.getOrPut(g) { ArrayList() } += t
+        }
+        index = Index(
+            byCat, newest(movies), newest(shows), top(movies), top(shows),
+            byGenre.mapValues { (_, v) -> v.sortedByDescending { it.rating ?: 0.0 } },
+            index.version + 1,
+        )
+    }
+
+    fun inCategory(kind: Kind, key: String): List<Title> = index.byCategory[(if (kind == Kind.MOVIE) "m|" else "s|") + key] ?: emptyList()
+
     @Synchronized
     fun clear() {
         byKey.clear(); movieMeta.clear(); showMeta.clear()
@@ -97,6 +129,7 @@ object Catalog {
             movies = list
             movieCategories = lib.categories
             moviesLoaded = true
+            reindex()
         }
     }
 
@@ -128,6 +161,7 @@ object Catalog {
             shows = list
             showCategories = lib.categories
             showsLoaded = true
+            reindex()
         }
     }
 

@@ -67,6 +67,19 @@ object Epg {
      * What's on each channel, fetched together (blocks; call from a background thread).
      * Guides younger than 20 minutes are reused.
      */
+    /** What's already known about these channels, without asking the provider. */
+    fun cachedOnly(groups: List<ChannelGroup>): Map<String, List<Programme>> {
+        restoreOnce()
+        val out = HashMap<String, List<Programme>>()
+        synchronized(this) {
+            for (g in groups) {
+                val id = streamOf(g) ?: continue
+                cache[id]?.let { out[g.key] = it }
+            }
+        }
+        return out
+    }
+
     fun loadAll(prefs: Prefs, groups: List<ChannelGroup>): Map<String, List<Programme>> {
         restoreOnce()
         val api = XtreamApi(prefs.server, prefs.username, prefs.password)

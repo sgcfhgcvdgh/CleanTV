@@ -299,3 +299,18 @@ object ChannelGrouper {
         )
     }
 }
+
+/**
+ * Your own channel order within a category (pure Kotlin, unit tested): channels you've arranged
+ * come first in your order, channels new since then go at the bottom in the provider's order,
+ * and channels the provider has removed simply drop out.
+ */
+object ChannelOrder {
+    fun <T> apply(list: List<T>, saved: List<String>, keyOf: (T) -> String): List<T> {
+        if (saved.isEmpty()) return list
+        val rank = HashMap<String, Int>(saved.size * 2)
+        saved.forEachIndexed { i, k -> if (k !in rank) rank[k] = i }
+        val (known, fresh) = list.partition { keyOf(it) in rank }
+        return known.sortedBy { rank[keyOf(it)] } + fresh
+    }
+}

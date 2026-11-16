@@ -326,18 +326,42 @@ object Library {
 
     private fun loadLocked(api: XtreamApi, force: Boolean): GroupedLibrary {
         if (!force) data?.let { return it }
+        // The saved list opens instantly; refreshInBackground() brings it up to date afterwards.
+        if (!force) ChannelCache.read()?.let { cached ->
+            adopt(cached, ChannelCache.savedAt)
+            return cached
+        }
         if (force) api.forgetLiveList()
         val cats = api.categories()
         val streams = api.streams()
         if (streams.isEmpty()) throw ApiException("Your account has no live channels")
         val lib = ChannelGrouper.group(cats, streams)
-        synchronized(this) {
-            byKey.clear()
-            lib.channels.forEach { byKey[it.key] = it }
-            data = lib
-            loadedAt = System.currentTimeMillis()
-        }
+        adopt(lib, System.currentTimeMillis())
+        ChannelCache.write(lib)
         return lib
+    }
+
+    @Synchronized
+    private fun adopt(lib: GroupedLibrary, at: Long) {
+        byKey.clear()
+        lib.channels.forEach { byKey[it.key] = it }
+        data = lib
+        loadedAt = at
+    }
+
+    @Volatile
+    private var refreshedThisRun = false
+
+    /**
+     * Downloads a fresh list (once per app run, or when [always]) and returns it only if anything
+     * you'd see changed; null if nothing changed or it couldn't be fetched. Blocks.
+     */
+    fun refreshInBackground(api: XtreamApi, always: Boolean = false): GroupedLibrary? {
+        if (refreshedThisRun && !always) return null
+        refreshedThisRun = true
+        val before = data?.let { ChannelCache.fingerprint(it) }
+        val fresh = runCatching { load(api, force = true) }.getOrNull() ?: return null
+        return fresh.takeIf { before == null || ChannelCache.fingerprint(it) != before }
     }
 }
 

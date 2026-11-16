@@ -1,22 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/root"
     android:layout_width="match_parent" android:layout_height="match_parent"
     android:background="@color/bg" android:orientation="horizontal"
-    android:paddingStart="40dp" android:paddingTop="28dp"
-    android:paddingEnd="40dp" android:paddingBottom="12dp">
+    android:paddingStart="32dp" android:paddingTop="24dp"
+    android:paddingEnd="32dp" android:paddingBottom="12dp">
 
+    <!-- Categories -->
     <LinearLayout
-        android:layout_width="250dp" android:layout_height="match_parent"
+        android:layout_width="200dp" android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <TextView
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp" android:fontFamily="sans-serif-black"
-            android:text="Live TV" android:textColor="@color/text" android:textSize="28sp" />
+        <LinearLayout
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginBottom="14dp" android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content" android:layout_height="wrap_content"
+                android:fontFamily="sans-serif-black"
+                android:text="Live TV" android:textColor="@color/text" android:textSize="26sp" />
+
+            <!-- Only on the very first launch, before there's a saved channel list. -->
+            <ProgressBar
+                android:id="@+id/firstLoad"
+                android:layout_width="20dp" android:layout_height="20dp"
+                android:layout_marginStart="12dp" android:indeterminateTint="@color/accent"
+                android:visibility="gone" />
+        </LinearLayout>
 
         <EditText
             android:id="@+id/search" style="@style/Field"
-            android:layout_height="46dp" android:hint="Search channels"
+            android:layout_height="44dp" android:hint="Search channels"
             android:imeOptions="actionSearch" android:inputType="text" android:textSize="15sp" />
 
         <androidx.recyclerview.widget.RecyclerView
@@ -34,28 +50,111 @@
             android:textColor="@color/nav_text" android:textSize="16sp" />
     </LinearLayout>
 
+    <!-- Channels -->
     <LinearLayout
         android:layout_width="0dp" android:layout_height="match_parent"
-        android:layout_marginStart="28dp" android:layout_weight="1"
+        android:layout_marginStart="20dp" android:layout_weight="1"
         android:orientation="vertical">
 
         <TextView
             android:id="@+id/heading"
             android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp" android:layout_marginTop="10dp"
-            android:fontFamily="sans-serif-medium" android:singleLine="true"
-            android:textColor="@color/text" android:textSize="19sp" />
+            android:layout_marginBottom="8dp" android:layout_marginTop="8dp"
+            android:fontFamily="sans-serif-medium" android:singleLine="true" android:ellipsize="end"
+            android:textColor="@color/text" android:textSize="17sp" />
 
         <TextView
             android:id="@+id/status"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="40dp" android:gravity="center"
-            android:textColor="@color/muted" android:textSize="18sp" android:visibility="gone" />
+            android:textColor="@color/muted" android:textSize="16sp" android:visibility="gone" />
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/grid"
             android:layout_width="match_parent" android:layout_height="0dp"
             android:layout_weight="1" android:clipChildren="false" android:clipToPadding="false"
-            android:paddingStart="6dp" android:paddingTop="6dp" android:paddingEnd="6dp" android:paddingBottom="24dp" />
+            android:paddingStart="4dp" android:paddingTop="4dp" android:paddingEnd="4dp" android:paddingBottom="24dp" />
+    </LinearLayout>
+
+    <!-- Preview: OK on a channel plays it here; OK again goes full screen. -->
+    <LinearLayout
+        android:layout_width="336dp" android:layout_height="match_parent"
+        android:layout_marginStart="20dp" android:orientation="vertical">
+
+        <FrameLayout
+            android:id="@+id/previewBox"
+            android:layout_width="336dp" android:layout_height="189dp"
+            android:layout_marginTop="8dp" android:background="@drawable/bg_card">
+
+            <org.videolan.libvlc.util.VLCVideoLayout
+                android:id="@+id/previewVlc"
+                android:layout_width="match_parent" android:layout_height="match_parent"
+                android:visibility="gone" />
+
+            <androidx.media3.ui.PlayerView
+                android:id="@+id/previewExo"
+                android:layout_width="match_parent" android:layout_height="match_parent"
+                android:visibility="gone"
+                app:resize_mode="fit" app:show_buffering="never" app:use_controller="false" />
+
+            <TextView
+                android:id="@+id/previewEmpty"
+                android:layout_width="match_parent" android:layout_height="match_parent"
+                android:gravity="center" android:padding="20dp"
+                android:text="Press OK on a channel to preview it here.\nPress OK again for full screen."
+                android:textColor="@color/muted" android:textSize="14sp" />
+
+            <ProgressBar
+                android:id="@+id/previewLoading"
+                android:layout_width="36dp" android:layout_height="36dp"
+                android:layout_gravity="center" android:indeterminateTint="@color/accent"
+                android:visibility="gone" />
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/previewName"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="12dp" android:ellipsize="end" android:singleLine="true"
+            android:fontFamily="sans-serif-black" android:textColor="@color/text" android:textSize="19sp" />
+
+        <TextView
+            android:id="@+id/previewQuality"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:singleLine="true" android:ellipsize="end"
+            android:fontFamily="sans-serif-medium" android:textColor="@color/accent" android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/previewNow"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="10dp" android:maxLines="2" android:ellipsize="end"
+            android:fontFamily="sans-serif-medium" android:textColor="@color/text" android:textSize="14sp" />
+
+        <ProgressBar
+            android:id="@+id/previewProgress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent" android:layout_height="3dp"
+            android:layout_marginTop="6dp" android:max="1000"
+            android:progressDrawable="@drawable/progress_card" android:visibility="invisible" />
+
+        <TextView
+            android:id="@+id/previewDesc"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="6dp" android:maxLines="4" android:ellipsize="end"
+            android:lineSpacingMultiplier="1.1" android:textColor="@color/muted" android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/previewNext"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:singleLine="true" android:ellipsize="end"
+            android:textColor="@color/faint" android:textSize="12sp" />
+
+        <View
+            android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
+
+        <TextView
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:lineSpacingMultiplier="1.2"
+            android:text="OK: preview, OK again: full screen\nHold OK: move channel   ·   ☰: channel options"
+            android:textColor="@color/faint" android:textSize="11sp" />
     </LinearLayout>
 </LinearLayout>

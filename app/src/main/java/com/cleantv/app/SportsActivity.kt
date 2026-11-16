@@ -3,6 +3,7 @@ package com.cleantv.app
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -139,10 +140,12 @@ class SportsActivity : AppCompatActivity(), CardHost {
         /** Rows from whatever has arrived: fresh answers where we have them, last time's otherwise. */
         fun current(): List<List<Game>> = (0 until n).map { fresh[it] ?: cached[it] ?: emptyList() }
 
-        fun showNow(matches: Map<String, List<GameMatcher.Candidate>>) {
+        fun showNow(matches: Map<String, List<GameMatcher.Candidate>>, partial: Boolean = false) {
             val built = buildRows(s, current(), matches)
             Bg.ui {
                 if (gen != generation) return@ui
+                // While you're moving around the games, half-loaded updates wait for the full one.
+                if (partial && firstShown.get() && isIn(rowsView, currentFocus)) return@ui
                 // The first time this sport is shown the list starts at the top; after that it just fills in.
                 show(s, built.first, built.second, quiet = firstShown.getAndSet(true))
             }
@@ -167,7 +170,7 @@ class SportsActivity : AppCompatActivity(), CardHost {
                     // Each league slots in as it arrives (at most a few redraws a second).
                     if (pending.compareAndSet(false, true)) handler.postDelayed({
                         pending.set(false)
-                        if (gen == generation) SportsFeed.pool.execute { showNow(SportsGuide.matches) }
+                        if (gen == generation) SportsFeed.pool.execute { showNow(SportsGuide.matches, partial = true) }
                     }, 300)
                     return@execute
                 }
@@ -184,7 +187,7 @@ class SportsActivity : AppCompatActivity(), CardHost {
         val all = perLeague.flatten()
         val rows = ArrayList<Row>()
         val live = all.filter { it.state == GameState.LIVE }
-        if (live.isNotEmpty()) rows += Row("live", "Live now", live.map { card(it) }.sortedByDescending { it.watchable }, RowStyle.GAME)
+        if (live.isNotEmpty()) rows += Row("live", "Live now", live.map { card(it) }, RowStyle.GAME)
         s.leagues.forEachIndexed { i, league ->
             val upcoming = perLeague[i].filter { it.state == GameState.UPCOMING }.take(30)
             if (upcoming.isNotEmpty()) rows += Row("up:${league.path}", "${league.name}  ·  coming up", upcoming.map { card(it) }, RowStyle.GAME)
@@ -251,6 +254,75 @@ class SportsActivity : AppCompatActivity(), CardHost {
         if (card is Card.GameCard) Playback.watchGame(this, card.game)
     }
 
+    // ------------------------------------------------------------------ remote
+
+    /** True while ◀ ▶ are moving along the sport tabs (only then does resting on a tab switch sport). */
+    private var movingAlongChips = false
+
+    private fun selectedChip(): View? {
+        val i = SportsCatalog.tabs.indexOfFirst { it.id == sport.id }
+        return chips.findViewHolderForAdapterPosition(i)?.itemView
+    }
+
+    private fun focusChips() {
+        val i = SportsCatalog.tabs.indexOfFirst { it.id == sport.id }
+        val v = selectedChip()
+        if (v != null) v.requestFocus() else {
+            chips.scrollToPosition(i)
+            chips.post { selectedChip()?.requestFocus() }
+        }
+    }
+
+    private fun firstRowCard(): View? {
+        for (p in 0 until rowsAdapter.itemCount) {
+            val row = rowsView.findViewHolderForAdapterPosition(p) as? RowsAdapter.VH ?: continue
+            val lm = row.list.layoutManager as? KeylineLayoutManager ?: continue
+            val pos = lm.findFirstCompletelyVisibleItemPosition().takeIf { it >= 0 } ?: 0
+            row.list.findViewHolderForAdapterPosition(pos)?.itemView?.let { return it }
+        }
+        return null
+    }
+
+    /** Back to the Home screen with the menu open on Sports. */
+    private fun toSidebar() {
+        MainActivity.openRailOn = "sports"
+        finish()
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val focus = currentFocus
+        val inChips = focus != null && isIn(chips, focus)
+        val inRows = focus != null && isIn(rowsView, focus)
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            movingAlongChips = inChips && (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_DOWN -> if (inChips) {
+                    // From the tabs straight to the first game.
+                    firstRowCard()?.let { it.requestFocus(); return true }
+                    return true
+                }
+                KeyEvent.KEYCODE_DPAD_UP -> if (inRows) {
+                    val next = focus!!.focusSearch(View.FOCUS_UP)
+                    if (next == null || !isIn(rowsView, next)) {
+                        // Leaving the games upwards always lands on the sport you're watching.
+                        focusChips(); return true
+                    }
+                }
+                KeyEvent.KEYCODE_DPAD_LEFT -> {
+                    val next = focus?.focusSearch(View.FOCUS_LEFT)
+                    val edge = next == null || (inRows && !isIn(rowsView, next)) || (inChips && !isIn(chips, next))
+                    if ((inRows || inChips) && edge) {
+                        toSidebar(); return true
+                    }
+                }
+                KeyEvent.KEYCODE_BACK -> if (inRows) {
+                    focusChips(); return true
+                }
+            }
+        } else if (event.keyCode == KeyEvent.KEYCODE_BACK && inRows) return true
+        return super.dispatchKeyEvent(event)
+    }
+
     // ------------------------------------------------------------------ sport chips
 
     private inner class ChipAdapter : RecyclerView.Adapter<ChipAdapter.VH>() {
@@ -272,8 +344,9 @@ class SportsActivity : AppCompatActivity(), CardHost {
             tv.setOnClickListener { handler.removeCallbacks(pending); selectSport(s) }
             tv.setOnFocusChangeListener { v, has ->
                 Motion.focus(v, has, 1.08f)
-                if (has) {
-                    // Resting on a sport for a moment loads it; flicking past doesn't.
+                if (has && movingAlongChips) {
+                    // Resting on a sport for a moment loads it; flicking past doesn't. Arriving from
+                    // the games below never switches sport.
                     pendingSport = s
                     handler.removeCallbacks(pending)
                     handler.postDelayed(pending, 450)

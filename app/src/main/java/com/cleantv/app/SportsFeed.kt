@@ -158,10 +158,10 @@ object SportsFeed {
      * Which broadcaster shows what on a day (UTC date "yyyy-MM-dd"), from TheSportsDB's
      * premium TV listings. Kept for an hour. Blocks.
      */
-    fun tvListings(key: String, date: String): List<TvListing> {
+    fun tvListings(key: String, date: String, offline: Boolean = false): List<TvListing> {
         if (key.isBlank()) return emptyList()
         val url = "https://www.thesportsdb.com/api/v1/json/" + java.net.URLEncoder.encode(key, "UTF-8") + "/eventstv.php?d=" + date
-        val body = Net.get(url, Net.HOUR) ?: return emptyList()
+        val body = Net.get(url, Net.HOUR, offline = offline) ?: return emptyList()
         val arr = runCatching { JSONObject(body).optJSONArray("tvevents") }.getOrNull() ?: return emptyList()
         val fmt = utc("yyyy-MM-dd HH:mm:ss")
         val out = ArrayList<TvListing>(arr.length())

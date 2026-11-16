@@ -76,6 +76,13 @@ class Prefs(context: Context) {
         get() = sp.getInt("aspect", 0)
         set(v) = sp.edit().putInt("aspect", v).apply()
 
+    /** Your own order of channels in a Live TV category (channel keys, top first). */
+    fun channelOrder(category: String): List<String> =
+        (sp.getString("order:$category", "") ?: "").split('\n').filter { it.isNotBlank() }
+
+    fun setChannelOrder(category: String, keys: List<String>) =
+        sp.edit().putString("order:$category", keys.joinToString("\n")).apply()
+
     /** Live TV categories you've hidden (their merged category keys). */
     var hiddenLiveCategories: Set<String>
         get() = sp.getStringSet("hiddenLiveCats", emptySet())?.toSet() ?: emptySet()

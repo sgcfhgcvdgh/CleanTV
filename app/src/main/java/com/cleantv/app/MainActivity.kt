@@ -26,6 +26,11 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class MainActivity : AppCompatActivity(), CardHost {
 
+    companion object {
+        /** Set by Sports and Live TV when ◀ at their left edge should land on this menu item. */
+        var openRailOn: String? = null
+    }
+
     private enum class Section { HOME, MOVIES, SHOWS, MYLIST }
 
     private data class Featured(val title: Title, val kicker: String, val match: Int)
@@ -138,6 +143,13 @@ class MainActivity : AppCompatActivity(), CardHost {
         val state = rowState()
         if (!firstRender && !loading && state != seenState) render(keepFocus = true)
         seenState = state
+        openRailOn?.let { id ->
+            openRailOn = null
+            nav.firstOrNull { it.id == id }?.view?.let { v ->
+                railAllowed = true
+                v.post { v.requestFocus() }
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -337,7 +349,10 @@ class MainActivity : AppCompatActivity(), CardHost {
     private fun loadChannelsQuietly() {
         if (Library.data != null) return
         Bg.run {
-            runCatching { Library.load(XtreamApi(prefs.server, prefs.username, prefs.password)) }
+            val api = XtreamApi(prefs.server, prefs.username, prefs.password)
+            runCatching { Library.load(api) }
+            // Opened from the saved list: fetch a fresh one quietly for the rest of the app to use.
+            Library.refreshInBackground(api)
             Bg.ui {
                 if (isFinishing) return@ui
                 if (prefs.favourites.isNotEmpty() && section == Section.HOME) render(keepFocus = true)
@@ -378,6 +393,12 @@ class MainActivity : AppCompatActivity(), CardHost {
         section = s
         markSection()
         rowsAdapter.forgetScroll()
+        // Show straight away that the press worked, even if the rows take a moment.
+        val ready = synchronized(rowsCache) { rowsCache[s]?.first == cacheKey(s) }
+        if (!ready) {
+            status.visibility = View.VISIBLE
+            status.text = when (s) { Section.MOVIES -> "Loading films…"; Section.SHOWS -> "Loading TV shows…"; else -> "Loading…" }
+        }
         val content = findViewById<View>(R.id.content)
         content.animate().alpha(0f).setDuration(140).withEndAction {
             render(keepFocus = false)
@@ -389,10 +410,23 @@ class MainActivity : AppCompatActivity(), CardHost {
 
     private fun render(keepFocus: Boolean) {
         val s = section
+        // Ready-built rows show at once; otherwise they're built off the screen's thread.
+        val cached = synchronized(rowsCache) { rowsCache[s]?.takeIf { it.first == cacheKey(s) }?.second }
+        if (cached != null) {
+            applyRows(s, cached, keepFocus)
+            return
+        }
         Bg.run {
-            val (rows, feat) = buildRows(s)
-            Bg.ui {
-                if (isFinishing || isDestroyed || s != section) return@ui
+            val built = rowsFor(s)
+            Bg.ui { applyRows(s, built, keepFocus) }
+        }
+    }
+
+    private fun applyRows(s: Section, built: Pair<List<Row>, Featured?>, keepFocus: Boolean) {
+        val (rows, feat) = built
+        run {
+            run {
+                if (isFinishing || isDestroyed || s != section) return
                 val first = firstRender
                 firstRender = false
                 rowsAdapter.submit(rows)
@@ -416,7 +450,36 @@ class MainActivity : AppCompatActivity(), CardHost {
                 } else status.visibility = View.GONE
                 endIntro()
                 upgradeBecauseRows(rows)
+                if (s == Section.HOME && first) prewarm()
             }
+        }
+    }
+
+    private fun newestOf(s: Section): List<Title> = when (s) {
+        Section.MOVIES -> Catalog.index.newestMovies
+        Section.SHOWS -> Catalog.index.newestShows
+        else -> Catalog.index.newestMovies + Catalog.index.newestShows
+    }
+
+    /** Built rows per section, reused while nothing they depend on has changed. */
+    private val rowsCache = HashMap<Section, Pair<String, Pair<List<Row>, Featured?>>>()
+
+    private fun cacheKey(s: Section) = listOf(
+        Catalog.index.version, rowState(), Library.data != null, liveRow?.cards?.size ?: -1, prefs.favourites.size,
+    ).joinToString("|")
+
+    private fun rowsFor(s: Section): Pair<List<Row>, Featured?> {
+        val key = cacheKey(s)
+        synchronized(rowsCache) { rowsCache[s]?.takeIf { it.first == key }?.let { return it.second } }
+        val built = buildRows(s)
+        synchronized(rowsCache) { rowsCache[s] = key to built }
+        return built
+    }
+
+    /** Builds Movies and TV Shows in the background, so opening them from the menu is instant. */
+    private fun prewarm() {
+        Bg.run {
+            for (s in listOf(Section.MOVIES, Section.SHOWS)) runCatching { rowsFor(s) }
         }
     }
 
@@ -484,17 +547,15 @@ class MainActivity : AppCompatActivity(), CardHost {
 
         val movies = if (s == Section.SHOWS) emptyList() else Catalog.movies
         val shows = if (s == Section.MOVIES) emptyList() else Catalog.shows
-        fun newest(list: List<Title>) = list.filter { it.added > 0 }.sortedByDescending { it.added }.take(40)
-            .ifEmpty { list.sortedBy { it.order }.take(40) }
-        fun acclaimed(list: List<Title>) = list.filter { (it.rating ?: 0.0) >= 7.3 }.sortedByDescending { it.rating }.take(40)
 
+        val idx = Catalog.index
         if (movies.isNotEmpty()) {
-            rows += Row("new-movies", "New films", newest(movies).map { card(it) })
-            acclaimed(movies).takeIf { it.size >= 5 }?.let { rows += Row("top-movies", "Critically acclaimed films", it.map { t -> card(t) }) }
+            rows += Row("new-movies", "New films", idx.newestMovies.map { card(it) })
+            idx.topMovies.takeIf { it.size >= 5 }?.let { rows += Row("top-movies", "Critically acclaimed films", it.map { t -> card(t) }) }
         }
         if (shows.isNotEmpty()) {
-            rows += Row("new-shows", "New and updated series", newest(shows).map { card(it) })
-            acclaimed(shows).takeIf { it.size >= 5 }?.let { rows += Row("top-shows", "Top rated TV", it.map { t -> card(t) }) }
+            rows += Row("new-shows", "New and updated series", idx.newestShows.map { card(it) })
+            idx.topShows.takeIf { it.size >= 5 }?.let { rows += Row("top-shows", "Top rated TV", it.map { t -> card(t) }) }
         }
 
         if (s == Section.HOME) {
@@ -505,28 +566,27 @@ class MainActivity : AppCompatActivity(), CardHost {
                 if (chans.isNotEmpty()) rows += Row("fav-channels", "Your channels", chans.map { Card.ChannelCard(it) }, RowStyle.WIDE)
             }
             // A few genre rows, led by the genres you watch most.
-            val counts = HashMap<String, Int>()
-            for (t in Catalog.all) for (g in t.genres) counts[g] = (counts[g] ?: 0) + 1
+            val counts = idx.byGenre.mapValues { it.value.size }
             val liked = profile.genres.entries.sortedByDescending { it.value }.map { it.key }
             val genres = counts.keys.sortedWith(
                 compareBy<String> { g -> liked.indexOf(Recommender.genreKey(g)).let { if (it < 0) Int.MAX_VALUE else it } }
                     .thenByDescending { counts[it] ?: 0 }
             ).filter { (counts[it] ?: 0) >= 8 }.take(5)
             for (g in genres) {
-                val list = Catalog.all.filter { g in it.genres }.sortedByDescending { it.rating ?: 0.0 }.take(40)
+                val list = idx.byGenre[g].orEmpty().take(40)
                 rows += Row("genre:$g", g, list.map { card(it) })
             }
         } else {
             val cats = if (s == Section.MOVIES) Catalog.movieCategories else Catalog.showCategories
             for (c in cats.take(40)) {
-                val list = pool.filter { c.key in it.categoryKeys }.take(40)
+                val list = Catalog.inCategory(if (s == Section.MOVIES) Kind.MOVIE else Kind.SHOW, c.key).take(40)
                 if (list.size >= 3) rows += Row("cat:${c.key}", c.name, list.map { card(it) })
             }
         }
 
         val feat = picks.firstOrNull { it.first.backdrop != null }?.let { Featured(it.first, "Top pick for you", match[it.first.key] ?: 0) }
             ?: picks.firstOrNull()?.let { Featured(it.first, "Top pick for you", match[it.first.key] ?: 0) }
-            ?: (newest(pool).filter { it.backdrop != null }.ifEmpty { newest(pool) }).take(8).randomOrNull()
+            ?: (newestOf(s).filter { it.backdrop != null }.ifEmpty { newestOf(s) }).take(8).randomOrNull()
                 ?.let { Featured(it, if (it.kind == Kind.MOVIE) "New film" else "New series", 0) }
         return rows to feat
     }
@@ -718,9 +778,13 @@ class MainActivity : AppCompatActivity(), CardHost {
                     SettingsDialog.show(this) { reload() }; return true
                 }
                 KeyEvent.KEYCODE_DPAD_LEFT -> if (focus != null && !isIn(rail, focus)) {
-                    // Only ◀ from the page (or Back) may open the menu.
+                    // Only ◀ from the page (or Back) opens the menu, and it opens on the page you're on.
                     val next = focus.focusSearch(View.FOCUS_LEFT)
-                    if (next != null && isIn(rail, next)) railAllowed = true
+                    if (next == null || isIn(rail, next)) {
+                        railAllowed = true
+                        (nav.firstOrNull { it.view.isSelected }?.view ?: nav[1].view).requestFocus()
+                        return true
+                    }
                 }
                 KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_UP -> if (focus != null && !isIn(rail, focus)) {
                     val down = event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN

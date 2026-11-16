@@ -54,7 +54,8 @@ object Motion {
         tv.animate().cancel()
         tv.animate().alpha(0f).setDuration(110).withEndAction {
             tv.text = text
-            tv.visibility = if (text.isNullOrEmpty()) View.GONE else View.VISIBLE
+            // Invisible, not gone: the line keeps its space so the layout never shifts.
+            tv.visibility = if (text.isNullOrEmpty()) View.INVISIBLE else View.VISIBLE
             tv.animate().alpha(1f).setDuration(220).setInterpolator(settle).start()
         }.start()
     }
