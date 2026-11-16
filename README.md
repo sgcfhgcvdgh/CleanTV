@@ -56,4 +56,11 @@ publishes it to `https://github.com/<you>/<repo>/releases/download/latest/CleanT
 1. Settings → My Fire TV → Developer options → turn on **Install unknown apps** for Downloader
    (if Developer options is hidden: My Fire TV → About → click the device name 7 times).
 2. Install **Downloader** from the Amazon Appstore.
-3. In Downloader, enter the release link above, then Install.
+3. In Downloader, type **`http://bit.ly/cleantv-apk`** (with `http://` at the front), then Install.
+   Installing over an older version keeps your login, favourites and history.
+
+**Older boxes (Android 7.1 and earlier):** always type the `http://` part. bit.ly's secure
+(`https://`) address uses a certificate Android 7.1 doesn't recognise, so Downloader hangs on
+"connecting". Over `http://`, bit.ly passes you straight to GitHub, whose certificates Android 7.1
+does trust. If bit.ly is ever unavailable, the full link also works:
+`https://github.com/sgcfhgcvdgh/CleanTV/releases/download/latest/CleanTV.apk`
