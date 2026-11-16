@@ -13,9 +13,10 @@ android {
         targetSdk = 34
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
         versionName = "1.0." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
-        // Fire TV and Android TV boxes are ARM; leaving out x86 keeps VLC's libraries from doubling the size.
+        // One copy of VLC's libraries: 32-bit ARM runs on every ARM TV box and Fire TV (64-bit ones
+        // included), and keeps the download about half the size, which matters on small boxes.
         ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+            abiFilters += listOf("armeabi-v7a")
         }
     }
 
