@@ -65,6 +65,9 @@ class LiveActivity : AppCompatActivity(), LiveEngine.Listener {
     private var pickHeld = false
     private var swallowCenterUp = false
 
+    /** The channel you were last on, to come back to with ▶. */
+    private var lastChannelKey: String? = null
+
     private val handler = Handler(Looper.getMainLooper())
     private var pending: Runnable? = null
     private var currentCat: String = ALL
@@ -97,6 +100,7 @@ class LiveActivity : AppCompatActivity(), LiveEngine.Listener {
 
         catAdapter = CategoryAdapter { item, fromFocus ->
             if (picked != null) return@CategoryAdapter
+            if (item.key == currentCat && search.text.isEmpty()) return@CategoryAdapter
             schedule(if (fromFocus) 220L else 0L) {
                 search.text.clear()
                 showCategory(item.key, resetScroll = true)
@@ -106,6 +110,7 @@ class LiveActivity : AppCompatActivity(), LiveEngine.Listener {
             prefs,
             onClick = { g -> onChannelPressed(g) },
             onLongClick = { g -> pickUp(g) },
+            onFocus = { g -> lastChannelKey = g.key },
         )
 
         catList.layoutManager = LinearLayoutManager(this)
@@ -499,12 +504,25 @@ class LiveActivity : AppCompatActivity(), LiveEngine.Listener {
         if (down) {
             val focus = currentFocus
             when (code) {
+                KeyEvent.KEYCODE_DPAD_RIGHT -> if (focus != null && isInside(catList, focus) && chanAdapter.itemCount > 0) {
+                    // ▶ from the categories goes back to the channel you were on.
+                    val key = lastChannelKey?.takeIf { k -> chanAdapter.items.any { it.key == k } }
+                    if (key != null) focusChannel(key) else grid.post {
+                        val first = (grid.layoutManager as LinearLayoutManager).findFirstVisibleItemPosition().coerceAtLeast(0)
+                        grid.findViewHolderForAdapterPosition(first)?.itemView?.requestFocus()
+                    }
+                    return true
+                }
                 KeyEvent.KEYCODE_MENU -> {
                     val g = focusedChannel()
                     if (g != null) channelMenu(g) else SettingsDialog.show(this) { onSettingsChanged() }
                     return true
                 }
-                KeyEvent.KEYCODE_DPAD_LEFT -> if (focus != null && (isInside(catList, focus) || focus === search ||
+                KeyEvent.KEYCODE_DPAD_LEFT -> if (focus != null && isInside(grid, focus)) {
+                    // ◀ from the channels always lands on the category you're in.
+                    focusCurrentCategory()
+                    return true
+                } else if (focus != null && (isInside(catList, focus) || focus === search ||
                         focus.id == R.id.settings)) {
                     // ◀ from the categories goes back to the menu, on Live TV.
                     MainActivity.openRailOn = "live"
@@ -514,6 +532,23 @@ class LiveActivity : AppCompatActivity(), LiveEngine.Listener {
             }
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    /** Focus the category you're in (or the search box while searching), scrolling to it if needed. */
+    private fun focusCurrentCategory() {
+        if (search.text.isNotBlank()) {
+            search.requestFocus(); return
+        }
+        val i = catAdapter.items.indexOfFirst { it.key == currentCat }
+        if (i < 0) {
+            catList.requestFocus(); return
+        }
+        val holder = catList.findViewHolderForAdapterPosition(i)
+        if (holder != null) holder.itemView.requestFocus()
+        else {
+            (catList.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(i, Motion.dp(catList, 120f))
+            catList.post { catList.findViewHolderForAdapterPosition(i)?.itemView?.requestFocus() }
+        }
     }
 
     private fun isInside(parent: View, v: View): Boolean {
